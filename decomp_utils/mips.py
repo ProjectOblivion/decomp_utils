@@ -218,10 +218,10 @@ class Instruction:
             )
 
         return cls(value, **kwargs)
-    
+
     def normalize_instruction(instruction):
         if isinstance(instruction, bytes):
-            instruction = int.from_bytes(instruction, byteorder='little')
+            instruction = int.from_bytes(instruction, byteorder="little")
 
         opcode = (instruction >> 26) & 0x3F
 
@@ -234,7 +234,7 @@ class Instruction:
         else:  # I-type
             # Mask out the immediate value (bits 15-0)
             normalized = instruction & 0xFFFF0000
-    
+
         return normalized.to_bytes(4, byteorder="little")
 
     def __repr__(self) -> str:

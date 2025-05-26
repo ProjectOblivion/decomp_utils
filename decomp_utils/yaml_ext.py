@@ -25,7 +25,9 @@ class Hex(YAMLObject, int):
             # Todo: Figure out why it doesn't handle strings correctly
             self.value: int = int(value, 16)
         else:
-            raise ValueError(f"Value must be {type(int)} or {type(str)}, but got {type(value)}")
+            raise ValueError(
+                f"Value must be {type(int)} or {type(str)}, but got {type(value)}"
+            )
 
     def __str__(self) -> str:
         if self.value >= 0x08000000:
