@@ -6,7 +6,6 @@ import re
 import shutil
 import decomp_utils
 import hashlib
-from concurrent.futures import ProcessPoolExecutor
 from collections import defaultdict
 from pathlib import Path
 from box import Box
@@ -33,7 +32,6 @@ def main(args):
     logger.info("Starting...")
     with decomp_utils.Spinner(message="generating config"):
         ovl_config = decomp_utils.SotnOverlayConfig(args.overlay, args.version)
-        ovl_config.write_config()
 
     if ovl_config.config_path.exists() and not args.force:
         logger.error(
@@ -41,15 +39,12 @@ def main(args):
         )
         raise SystemExit
     else:
+        ovl_config.write_config()
         with decomp_utils.Spinner(message="ensuring no overlay artifacts exist"):
-            if ovl_config.config_path.exists():
-                decomp_utils.shell(f"git rm --cached -f {ovl_config.config_path}")
-            if ovl_config.ovl_symbol_addrs_path.exists():
-                decomp_utils.shell(
-                    f"git rm --cached -f {ovl_config.ovl_symbol_addrs_path}"
-                )
-            if ovl_config.version == "pspeu" and ovl_config.symexport_path.exists():
-                decomp_utils.shell(f"git rm --cached -f {ovl_config.symexport_path}")
+            ovl_config.config_path.unlink(missing_ok=True)
+            ovl_config.ovl_symbol_addrs_path.unlink(missing_ok=True)
+            if ovl_config.symexport_path:
+                ovl_config.symexport_path.unlink(missing_ok=True)
             if ovl_config.asm_path.exists():
                 decomp_utils.shell(f"git clean -fdx {ovl_config.asm_path}")
             if (path := ovl_config.build_path / ovl_config.src_path_full).exists():
@@ -62,8 +57,6 @@ def main(args):
             ovl_config.build_path.joinpath(f"{ovl_config.target_path.name}").unlink(
                 missing_ok=True
             )
-            if ovl_config.symexport_path:
-                ovl_config.symexport_path.unlink(missing_ok=True)
             if ovl_config.version != "hd" and ovl_config.src_path_full.exists():
                 shutil.rmtree(ovl_config.src_path_full)
 
@@ -99,18 +92,14 @@ def main(args):
         if new_lines != check_file_lines:
             # Todo: Order the sha1 lines correctly
             check_file_path.write_text(f"{"\n".join(new_lines)}\n")
-        decomp_utils.shell(
-            f"git add {check_file_path}"
-        )
+        decomp_utils.shell(f"git add {check_file_path}")
 
-        spinner.message = f"performing initial split using {ovl_config.config_path}"
+        spinner.message = f"performing initial split with {ovl_config.config_path}"
         decomp_utils.splat_split(ovl_config.config_path, ovl_config.disassemble_all)
         src_text = ovl_config.first_src_file.read_text()
         adjusted_text = src_text.replace(f'("asm/{args.version}/', '("')
         ovl_config.first_src_file.write_text(adjusted_text)
-
-    with decomp_utils.Spinner(message = f"performing full build to generate reference .elf files"):
-        decomp_utils.build(concurrent = True, version = ovl_config.version)
+        decomp_utils.build(build=False, version=ovl_config.version)
 
     with decomp_utils.Spinner(message=f"gathering initial symbols") as spinner:
         header_symbols, entity_table_symbols, export_table_symbols = None, None, None
@@ -195,7 +184,9 @@ def main(args):
             )
             spinner.message = f"adding {len(parsed_symbols)} parsed symbols and splitting using updated symbols"
             decomp_utils.add_symbols(ovl_config, parsed_symbols)
-            decomp_utils.shell(f"git add {ovl_config.config_path} {ovl_config.ovl_symbol_addrs_path}")
+            decomp_utils.shell(
+                f"git add {ovl_config.config_path} {ovl_config.ovl_symbol_addrs_path}"
+            )
             decomp_utils.shell(f"git clean -fdx {ovl_config.asm_path}")
             decomp_utils.splat_split(ovl_config.config_path)
 
@@ -203,7 +194,10 @@ def main(args):
         message="extracting reference symbols from .elf files"
     ) as spinner:
         if elf_files := ovl_config.build_path.glob("*.elf"):
-            decomp_utils.force_symbols(ovl_config.version, tuple(x for x in elf_files if ovl_config.name not in x.name))
+            decomp_utils.force_symbols(
+                ovl_config.version,
+                tuple(x for x in elf_files if ovl_config.name not in x.name),
+            )
         else:
             logger.error(
                 f"No elf files found in {ovl_config.build_path}.  Rerun this tool after a successful build."
@@ -214,35 +208,34 @@ def main(args):
         decomp_utils.shell(
             f"git clean -fdx asm/{ovl_config.version}/ -e {ovl_config.asm_path}"
         )
-        ref_configs, ref_ovls = [], []
+        ref_lds, ref_ovls = [], []
         for file in Path("config").iterdir():
             ref_version = (
                 "pspeu" in file.name
                 if ovl_config.platform == "psp"
                 else "us" in file.name or "hd" in file.name
             )
-            exclude = (
-                not file.match("splat.*.yaml")
-                or ovl_config.name in file.name
-                or "main" in file.name
-                or "weapon" in file.name
-                or "mad" in file.name
+            ref_pattern = re.compile(
+                rf"splat\.\w+\.(?P<prefix>st|bo)?(?P<ref_ovl>\w+)\.yaml"
             )
             # Todo: This should probably differentiate between stage and non-stage to reduce execution time
             if (
                 ref_version
-                and not exclude
-                and (
-                    match := re.match(
-                        rf"splat\.\w+\.(?:st|bo)?(?P<ref_ovl>\w+)\.yaml", file.name
-                    )
-                )
+                and "main" not in file.name
+                and "weapon" not in file.name
+                and "mad" not in file.name
+                and ovl_config.name not in file.name
+                and file.match("splat.*.yaml")
+                and (match := ref_pattern.match(file.name))
             ):
-                ref_configs.append(file)
+                ref_lds.append(
+                    ovl_config.build_path.joinpath(
+                        f'{match.group("prefix") or ""}{match.group("ref_ovl")}'
+                    ).with_suffix(".ld")
+                )
                 ref_ovls.append(match.group("ref_ovl"))
 
-        with ProcessPoolExecutor() as executor:
-            executor.map(decomp_utils.splat_split, ref_configs)
+        decomp_utils.build(ref_lds, plan=False, version=ovl_config.version)
 
         # Removes forced symbols files
         decomp_utils.shell("git checkout config/")
@@ -461,8 +454,10 @@ def main(args):
     built_bin = ovl_config.build_path / f"{ovl_config.target_path.name}"
     with decomp_utils.Spinner(message=f"building and validating {built_bin}"):
         decomp_utils.build(
-            [f'{ovl_config.ld_script_path.with_suffix(".elf")}', ovl_config.name],
-            concurrent=True,
+            [
+                f'{ovl_config.ld_script_path.with_suffix(".elf")}',
+                f"{ovl_config.build_path}/{ovl_config.target_path.name}",
+            ],
             version=ovl_config.version,
         )
         if built_bin.exists():
@@ -522,6 +517,7 @@ if __name__ == "__main__":
         help="Attempt to apply splat suggestions.  WARNING: may require manual adjustment of config to build after suggestions",
     )
     # Todo: Add option to use mipsmatch instead of native matching
+    # Todo: Put this closer to where the multiprocessing is happening.
     multiprocessing.log_to_stderr()
     multiprocessing.set_start_method("spawn")
     global args

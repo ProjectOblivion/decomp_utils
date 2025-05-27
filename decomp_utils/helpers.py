@@ -9,12 +9,15 @@ import threading
 import os
 import argparse
 import re
+import contextlib
+import splat.scripts.split as split
 import decomp_utils.yaml_ext as yaml
 from subprocess import run, CalledProcessError
 from logging import LogRecord
 from pathlib import Path
 from enum import StrEnum
 from typing import Any, Union, Generator
+from io import StringIO
 
 __all__ = [
     "TTY",
@@ -350,13 +353,11 @@ def bar(score, width=7):
     return bar
 
 
-def build(targets = ["build"], concurrent=False, version="us"):
-    if targets == ["build"]:
-        return shell(
-            f'make {"-j " if concurrent else ""}{" ".join(targets)}', version=version
-        )
-    else:
-        return shell(f'ninja {" ".join(targets)}')
+def build(targets=[], plan=True, build=True, version="us"):
+    if plan:
+        shell(f"python3 tools/builds/gen.py", version=version)
+    if build:
+        return shell(f'ninja {" ".join(f"{x}" for x in targets)}', version=version)
 
 
 def splat_split(config_path, disassemble_all=True):
@@ -364,9 +365,30 @@ def splat_split(config_path, disassemble_all=True):
         r"disassemble_all:\s*(?:true|yes)", Path(config_path).read_text(), re.IGNORECASE
     ):
         disassemble_all = False
-    return shell(
-        f"splat split {"--disassemble-all " if disassemble_all else ""}{config_path}"
-    )
+    # Keeping this here until I'm satisfied with using splat as a module
+    # return shell(
+    #    f"splat split {"--disassemble-all " if disassemble_all else ""}{config_path}"
+    # )
+    # Create a StringIO buffer to capture stdout and stderr
+    output = StringIO()
+    with contextlib.redirect_stdout(output):
+        # Splat has a bug where it will throw an exception if disassemble_all is True in the config and also passed as True
+        if disassemble_all and re.search(
+            r"disassemble_all:\\s*(?:true|yes)",
+            Path(config_path).read_text(),
+            re.IGNORECASE,
+        ):
+            disassemble_all = False
+        split.main(
+            config_path=[config_path],
+            modes=None,
+            verbose=False,
+            use_cache=False,
+            skip_version_check=False,
+            stdout_only=True,
+            disassemble_all=disassemble_all,
+        )
+    return output.getvalue()
 
 
 def mipsmatch(version, ref_ovls, bin_path):
