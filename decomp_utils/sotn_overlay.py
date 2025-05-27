@@ -20,6 +20,7 @@ __all__ = [
 # Pseudo enum for my own convenience
 NULL = SimpleNamespace(BYTE=b"\x00", INT=0x0, STR="", LIST=[], DICT={})
 
+
 class MwOverlayHeader:
     """A Python implementation of the MetroWerks overlay header"""
 
@@ -85,6 +86,7 @@ class MwOverlayHeader:
 
         return self
 
+
 # Todo: This is currently written for a new config, it needs to be modified to load a config if it exists or create a new one.
 class SotnOverlayConfig:
     """
@@ -120,20 +122,20 @@ class SotnOverlayConfig:
         self.asm_path: Path = Path(f"asm/{version}")
         self.src_path: Path = Path("src")
         self.segment_prefix = f"{self.name}_psp/" if self.platform == "psp" else ""
-        self.asset_path: Path = Path(f"assets").joinpath(
-            self.path_prefix, self.name
-        )
+        self.asset_path: Path = Path(f"assets").joinpath(self.path_prefix, self.name)
         self.ld_script_path: Path = self.build_path.joinpath(f"{self.basename}.ld")
 
         # splat paths
-        self.config_path: Path = Path(
-            f"config/splat.{version}.{self.basename}.yaml"
-        )
+        self.config_path: Path = Path(f"config/splat.{version}.{self.basename}.yaml")
         self.extensions_path: Path = Path("tools/splat_ext")
 
         # symbols paths
         _symbols_base_path: Path = Path("config")
-        self.symexport_path: Path = Path(f"config/symexport.{self.version}.{self.basename}.txt") if self.platform == "psp" else ""
+        self.symexport_path: Path = (
+            Path(f"config/symexport.{self.version}.{self.basename}.txt")
+            if self.platform == "psp"
+            else ""
+        )
         self.global_symbol_addrs_path: Path = _symbols_base_path.joinpath(
             f"symbols.{version}.txt"
         )
@@ -181,14 +183,10 @@ class SotnOverlayConfig:
 
         # Platform specific definitions
         if self.platform == "psx":
-            self.asm_path = self.asm_path.joinpath(
-                self.path_prefix, self.name
-            )
-            self.src_path = self.src_path.joinpath(
-                self.path_prefix, self.name
-            )
+            self.asm_path = self.asm_path.joinpath(self.path_prefix, self.name)
+            self.src_path = self.src_path.joinpath(self.path_prefix, self.name)
             self.src_path_full = self.src_path
-            self.first_src_file = self.src_path_full/f"first_{self.name}.c"
+            self.first_src_file = self.src_path_full / f"first_{self.name}.c"
             self.start: int = 0x0
 
             self.global_vram_start: int = 0x80010000
@@ -227,12 +225,10 @@ class SotnOverlayConfig:
                 _jtbl_address - self.vram if _jtbl_address else None
             )
         elif self.platform == "psp":
-            self.asm_path = self.asm_path.joinpath(
-                self.path_prefix, f"{self.name}_psp"
-            )
+            self.asm_path = self.asm_path.joinpath(self.path_prefix, f"{self.name}_psp")
             self.src_path = self.src_path.joinpath(self.path_prefix)
             self.src_path_full = self.src_path.joinpath(f"{self.name}_psp")
-            self.first_src_file = self.src_path_full/f"first_{self.name}.c"
+            self.first_src_file = self.src_path_full / f"first_{self.name}.c"
             self.start: int = 0x80
             self.vram: int = self.mwo_header.address + 0x80
             self.align: int = 128
@@ -289,7 +285,7 @@ class SotnOverlayConfig:
     @property
     def ovl_type(self):
         return self._ovl_type.label
-    
+
     @property
     def ovl_prefix(self):
         return self._ovl_type.ovl_prefix
@@ -476,10 +472,16 @@ class SotnOverlayConfig:
             ]
         elif not self._subsegments and self.platform == "psp":
             self._subsegments = [
-                yaml.FlowSegment([0x80, "c", f"{self.segment_prefix}{self.first_src_file.stem}"]),
+                yaml.FlowSegment(
+                    [0x80, "c", f"{self.segment_prefix}{self.first_src_file.stem}"]
+                ),
                 yaml.FlowSegment([self.data_section.offset, "data"]),
                 yaml.FlowSegment(
-                    [self.rodata_section.offset, ".rodata", f"{self.segment_prefix}{self.first_src_file.stem}"]
+                    [
+                        self.rodata_section.offset,
+                        ".rodata",
+                        f"{self.segment_prefix}{self.first_src_file.stem}",
+                    ]
                 ),
                 yaml.FlowSegment([self.bss_section.offset, "bss"]),
             ]
@@ -528,7 +530,9 @@ def get_text_offset(data: bytes) -> Optional[int]:
     # Checks each addiu $sp, $sp match until it finds one that is both
     # in the proper byte alignment and the imm address is not 0
     while text_offset > 0 and (
-        text_offset % 4 != 0 or (data[text_offset + 1] != NULL.BYTE and data[text_offset + 1] != 0xFF) or data[text_offset : text_offset + 2] == NULL.BYTE * 2
+        text_offset % 4 != 0
+        or (data[text_offset + 1] != NULL.BYTE and data[text_offset + 1] != 0xFF)
+        or data[text_offset : text_offset + 2] == NULL.BYTE * 2
     ):
         text_offset = data.find(addiu_sp, text_offset + 4) - 2
 
@@ -562,13 +566,13 @@ def get_rodata_address(data: bytes) -> Optional[int]:
     lw_offset = data.rfind(lw_v0.instruction[3], 0, jr_offset) - 3
     if lw_offset == -1:
         return None
-    
+
     lw_v0 = mips.Instruction.from_bytes(data[lw_offset : lw_offset + 4])
     lui_rs = mips.Instruction.from_fields(
         opcode=mips.Opcode.LUI.value, rt=lw_v0.rs, rs=NULL.INT
     ).instruction
     # Look for last 'lui $at, %hi(XXX) before lw_offset
-    lui_offset = data.rfind(lui_rs.lstrip(NULL.BYTE),0, jr_offset) - 2
+    lui_offset = data.rfind(lui_rs.lstrip(NULL.BYTE), 0, jr_offset) - 2
 
     if lui_offset == -1:
         return None

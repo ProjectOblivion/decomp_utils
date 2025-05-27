@@ -1,12 +1,22 @@
 import decomp_utils
 from pathlib import Path
 
+
 def main(args):
     match args.command:
         case "sort":
             symbols_path = Path(args.symbols_path)
             if symbols_path.is_dir():
-                symbols_files = tuple(file for file in symbols_path.iterdir() if args.version in file.name and (file.name.startswith("symbols.") or file.name.startswith("undefined_syms.")) and file.suffix == ".txt")
+                symbols_files = tuple(
+                    file
+                    for file in symbols_path.iterdir()
+                    if args.version in file.name
+                    and (
+                        file.name.startswith("symbols.")
+                        or file.name.startswith("undefined_syms.")
+                    )
+                    and file.suffix == ".txt"
+                )
             elif symbols_path.is_file():
                 symbols_files = (symbols_path,)
             else:
@@ -17,28 +27,40 @@ def main(args):
         case "parse":
             excluded_starts = {"LM", "__pad"}
             excluded_ends = {"_START", "_END", "_VRAM"}
-    
+
             if args.no_default:
                 excluded_starts |= {"D_", "func_", "jpt_", "jtbl_"}
-    
-            symbols = decomp_utils.get_symbols(args.file_name, list(excluded_starts), list(excluded_ends))
-            
+
+            symbols = decomp_utils.get_symbols(
+                args.file_name, list(excluded_starts), list(excluded_ends)
+            )
+
             if args.output:
-                Path(args.output).write_text(f"{"\n".join(tuple(f"{symbol.name} = 0x{symbol.address:08X}; // allow_duplicated:True" for symbol in symbols))}\n")
+                Path(args.output).write_text(
+                    f"{"\n".join(tuple(f"{symbol.name} = 0x{symbol.address:08X}; // allow_duplicated:True" for symbol in symbols))}\n"
+                )
             else:
                 for symbol in symbols:
-                    print(f"{symbol.name} = 0x{symbol.address:08X}; // allow_duplicated:True")
+                    print(
+                        f"{symbol.name} = 0x{symbol.address:08X}; // allow_duplicated:True"
+                    )
         case "force":
-            decomp_utils.force_symbols(args.version, tuple(Path(x) for x in args.elf_file))
+            decomp_utils.force_symbols(
+                args.version, tuple(Path(x) for x in args.elf_file)
+            )
         case _:
             print("Unknown command. Use --help for usage information.")
 
+
 if __name__ == "__main__":
-    parser = decomp_utils.get_argparser(description="Perform operations on game symbols")
+    parser = decomp_utils.get_argparser(
+        description="Perform operations on game symbols"
+    )
     subparsers = parser.add_subparsers(dest="command")
     # Todo: Clean up arguments
     sort_parser = subparsers.add_parser(
-        "sort", description="Sort all the symbols of a given GNU LD script by their offset"
+        "sort",
+        description="Sort all the symbols of a given GNU LD script by their offset",
     )
     sort_parser.add_argument(
         "symbols_path",
@@ -46,7 +68,8 @@ if __name__ == "__main__":
     )
 
     force_parser = subparsers.add_parser(
-        "force", description="Sort all the symbols of a given GNU LD script by their offset"
+        "force",
+        description="Sort all the symbols of a given GNU LD script by their offset",
     )
     force_parser.add_argument(
         "elf_file",
@@ -72,7 +95,8 @@ if __name__ == "__main__":
         help="The file to parse symbols from",
     )
     parse_parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         type=str,
         help="Output parsed symbols to specified file, rather than stdout",
         required=False,
@@ -86,4 +110,3 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     main(args)
-

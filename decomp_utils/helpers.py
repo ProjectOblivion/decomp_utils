@@ -9,12 +9,15 @@ import threading
 import os
 import argparse
 import re
+import contextlib
+import splat.scripts.split as split
 import decomp_utils.yaml_ext as yaml
 from subprocess import run, CalledProcessError
 from logging import LogRecord
 from pathlib import Path
 from enum import StrEnum
 from typing import Any, Union, Generator
+from io import StringIO
 
 __all__ = [
     "TTY",
@@ -60,6 +63,7 @@ class SotnDecompConsoleFormatter(logging.Formatter):
         format_str: str = self.formats.get(message.levelno, self.message_format)
         return logging.Formatter(format_str).format(message)
 
+
 class SotnDecompLogFormatter(logging.Formatter):
     """Formats log entries as JSON for file output"""
 
@@ -73,8 +77,14 @@ class SotnDecompLogFormatter(logging.Formatter):
         }
         return json.dumps(entry)
 
+
 class Spinner:
-    def __init__(self, output_to = "stderr", interval: float = None, message: str = "Generating witty line") -> None:
+    def __init__(
+        self,
+        output_to="stderr",
+        interval: float = None,
+        message: str = "Generating witty line",
+    ) -> None:
         self.output_to = sys.stdout if output_to == "stdout" else sys.stderr
         self.running: bool = False
         self.killed: bool = False
@@ -90,7 +100,7 @@ class Spinner:
             yield f"{TTY.GREEN}{TTY.BOLD}{char}{TTY.RESET}"
 
     @staticmethod
-    def write(s: str, output_to = sys.stderr) -> None:
+    def write(s: str, output_to=sys.stderr) -> None:
         output_to.write(s)
         output_to.flush()
 
@@ -110,7 +120,7 @@ class Spinner:
             time.sleep(self.interval)
         self.write(TTY.SHOW_CURSOR, self.output_to)
 
-    def kill(self, message = None) -> None:
+    def kill(self, message=None) -> None:
         if message:
             get_logger().warning(message)
         self.__exit__(None, None, None, killed=True)
@@ -126,9 +136,14 @@ class Spinner:
         self.running = False
         time.sleep(self.interval)  # Wait for the last cycle to finish
         if killed or exception is not None:
-            self.write(f"\r{TTY.RED}{TTY.BOLD}✖{TTY.RESET} {self.message}\n", self.output_to)
+            self.write(
+                f"\r{TTY.RED}{TTY.BOLD}✖{TTY.RESET} {self.message}\n", self.output_to
+            )
         else:
-            self.write(f"\r{TTY.GREEN}{TTY.BOLD}✔{TTY.RESET} {self.message} ({round(time.perf_counter() - self.start_time, 2)}s)\n", self.output_to)
+            self.write(
+                f"\r{TTY.GREEN}{TTY.BOLD}✔{TTY.RESET} {self.message} ({round(time.perf_counter() - self.start_time, 2)}s)\n",
+                self.output_to,
+            )
 
         if exception is not None:
             return False
@@ -145,9 +160,7 @@ def get_repo_root(current_path: Path = Path(__file__).resolve()) -> Path:
 
 def get_argparser(description):
     """Sets arguments that are used frequently to enable a consistent user experience"""
-    arg_parser = argparse.ArgumentParser(
-        description=description
-    )
+    arg_parser = argparse.ArgumentParser(description=description)
     arg_parser.add_argument(
         "-v",
         "--version",
@@ -160,23 +173,35 @@ def get_argparser(description):
     return arg_parser
 
 
-def get_logger(file_level = logging.INFO, console_level = logging.WARNING, stdout = True, filename = "sotn_log.json"):
+def get_logger(
+    file_level=logging.INFO,
+    console_level=logging.WARNING,
+    stdout=True,
+    filename="sotn_log.json",
+):
     """Simple wrapper function to make it easier to set up and use custom formatting"""
     logger = logging.getLogger(__name__.strip("_"))
     logger.setLevel(logging.INFO)
 
-    if filename and not any(isinstance(h, logging.FileHandler) and h.baseFilename == os.path.abspath(filename) for h in logger.handlers):
-        file_handler = logging.FileHandler(filename, mode='a')
+    if filename and not any(
+        isinstance(h, logging.FileHandler)
+        and h.baseFilename == os.path.abspath(filename)
+        for h in logger.handlers
+    ):
+        file_handler = logging.FileHandler(filename, mode="a")
         file_handler.setLevel(file_level)
         file_handler.setFormatter(SotnDecompLogFormatter())
         logger.addHandler(file_handler)
-    if stdout and not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+    if stdout and not any(
+        isinstance(h, logging.StreamHandler) for h in logger.handlers
+    ):
         console_handler = logging.StreamHandler()
         console_handler.setLevel(console_level)
         console_handler.setFormatter(SotnDecompConsoleFormatter())
         logger.addHandler(console_handler)
 
     return logger
+
 
 def shell(cmd, *, version="us"):
     """Executes a string as a shell command and returns its output"""
@@ -189,30 +214,52 @@ def shell(cmd, *, version="us"):
         logger = get_logger()
         logger.warning(cmd_output.stdout)
         logger.error(cmd_output.stderr)
-        #raise CalledProcessError(cmd_output.returncode, cmd, cmd_output.stderr)
+        # raise CalledProcessError(cmd_output.returncode, cmd, cmd_output.stderr)
     return cmd_output.stdout
+
 
 def create_table(rows, header=None, style="single"):
     # Define box-drawing characters for different styles
     styles = {
         "single": {
-            "horizontal": "─", "vertical": "│",
-            "top_left": "┌", "top_right": "┐", "top_mid": "┬",
-            "bottom_left": "└", "bottom_right": "┘", "bottom_mid": "┴",
-            "left_mid": "├", "right_mid": "┤", "center": "┼"
+            "horizontal": "─",
+            "vertical": "│",
+            "top_left": "┌",
+            "top_right": "┐",
+            "top_mid": "┬",
+            "bottom_left": "└",
+            "bottom_right": "┘",
+            "bottom_mid": "┴",
+            "left_mid": "├",
+            "right_mid": "┤",
+            "center": "┼",
         },
         "double": {
-            "horizontal": "═", "vertical": "║",
-            "top_left": "╔", "top_right": "╗", "top_mid": "╦",
-            "bottom_left": "╚", "bottom_right": "╝", "bottom_mid": "╩",
-            "left_mid": "╠", "right_mid": "╣", "center": "╬"
+            "horizontal": "═",
+            "vertical": "║",
+            "top_left": "╔",
+            "top_right": "╗",
+            "top_mid": "╦",
+            "bottom_left": "╚",
+            "bottom_right": "╝",
+            "bottom_mid": "╩",
+            "left_mid": "╠",
+            "right_mid": "╣",
+            "center": "╬",
         },
         "bold": {
-            "horizontal": "━", "vertical": "┃",
-            "top_left": "┏", "top_right": "┓", "top_mid": "┳",
-            "bottom_left": "┗", "bottom_right": "┛", "bottom_mid": "┻",
-            "left_mid": "┣", "right_mid": "┫", "center": "╋"
-        }
+            "horizontal": "━",
+            "vertical": "┃",
+            "top_left": "┏",
+            "top_right": "┓",
+            "top_mid": "┳",
+            "bottom_left": "┗",
+            "bottom_right": "┛",
+            "bottom_mid": "┻",
+            "left_mid": "┣",
+            "right_mid": "┫",
+            "center": "╋",
+        },
     }
 
     chars = styles.get(style, styles["single"])
@@ -220,7 +267,10 @@ def create_table(rows, header=None, style="single"):
     # Determine column widths
     if header:
         rows = [header] + rows
-    col_widths = [max(len(str(cell)) for cell in col) for col in zip(*[row for row in rows if row != "---"])]
+    col_widths = [
+        max(len(str(cell)) for cell in col)
+        for col in zip(*[row for row in rows if row != "---"])
+    ]
 
     def create_row(cells, left, mid, right, fill):
         row = left
@@ -230,36 +280,71 @@ def create_table(rows, header=None, style="single"):
         return row
 
     def create_divider():
-        return chars["left_mid"] + chars["center"].join(
-            chars["horizontal"] * (w + 1) + (chars["horizontal"] if i else "") for i,w in enumerate(col_widths)) + chars["right_mid"]
+        return (
+            chars["left_mid"]
+            + chars["center"].join(
+                chars["horizontal"] * (w + 1) + (chars["horizontal"] if i else "")
+                for i, w in enumerate(col_widths)
+            )
+            + chars["right_mid"]
+        )
 
     table = []
 
     # Top border
-    table.append(chars["top_left"] + chars["top_mid"].join(
-        chars["horizontal"] * (w + 1) + (chars["horizontal"] if i else "") for i,w in enumerate(col_widths)) + chars["top_right"])
+    table.append(
+        chars["top_left"]
+        + chars["top_mid"].join(
+            chars["horizontal"] * (w + 1) + (chars["horizontal"] if i else "")
+            for i, w in enumerate(col_widths)
+        )
+        + chars["top_right"]
+    )
 
     if header:
-        table.append(create_row(header, chars["vertical"], chars["vertical"], chars["vertical"], chars["horizontal"]))
+        table.append(
+            create_row(
+                header,
+                chars["vertical"],
+                chars["vertical"],
+                chars["vertical"],
+                chars["horizontal"],
+            )
+        )
         table.append(create_divider())
 
     for row in rows[1:] if header else rows:
         if row == "---":
             table.append(create_divider())
         else:
-            table.append(create_row(row, chars["vertical"], chars["vertical"], chars["vertical"], chars["horizontal"]))
+            table.append(
+                create_row(
+                    row,
+                    chars["vertical"],
+                    chars["vertical"],
+                    chars["vertical"],
+                    chars["horizontal"],
+                )
+            )
 
     # Bottom border
-    table.append(chars["bottom_left"] + chars["bottom_mid"].join(
-        chars["horizontal"] * (w + 1) + (chars["horizontal"] if i else "") for i,w in enumerate(col_widths)) + chars["bottom_right"])
+    table.append(
+        chars["bottom_left"]
+        + chars["bottom_mid"].join(
+            chars["horizontal"] * (w + 1) + (chars["horizontal"] if i else "")
+            for i, w in enumerate(col_widths)
+        )
+        + chars["bottom_right"]
+    )
 
     return "\n".join(table)
 
-def bar(score, width = 7):
+
+def bar(score, width=7):
     # Normalize the score to a range of 0 to (width - 1) for full blocks
     normalized = score / (100 / (width - 1))
     full_blocks = int(normalized)
-    
+
     half_block_start = 1  # First block is always a half block
     half_block_end = 1 if normalized - full_blocks >= 0.5 else 0
     empty_blocks = width - full_blocks - half_block_start - half_block_end
@@ -267,19 +352,54 @@ def bar(score, width = 7):
     bar = "█" * full_blocks + "▌" * half_block_end + " " * empty_blocks
     return bar
 
-def build(targets, concurrent = False, version = "us"):
-    return shell(f'make {"-j " if concurrent else ""}{" ".join(targets)}', version=version)
 
-def splat_split(config_path, disassemble_all = True):
-    if disassemble_all and re.search(r"disassemble_all:\s*(?:true|yes)", Path(config_path).read_text(), re.IGNORECASE):
+def build(targets=[], plan=True, build=True, version="us"):
+    if plan:
+        shell(f"python3 tools/builds/gen.py", version=version)
+    if build:
+        return shell(f'ninja {" ".join(f"{x}" for x in targets)}', version=version)
+
+
+def splat_split(config_path, disassemble_all=True):
+    if disassemble_all and re.search(
+        r"disassemble_all:\s*(?:true|yes)", Path(config_path).read_text(), re.IGNORECASE
+    ):
         disassemble_all = False
-    return shell(f"splat split {"--disassemble-all " if disassemble_all else ""}{config_path}")
+    # Keeping this here until I'm satisfied with using splat as a module
+    # return shell(
+    #    f"splat split {"--disassemble-all " if disassemble_all else ""}{config_path}"
+    # )
+    # Create a StringIO buffer to capture stdout and stderr
+    output = StringIO()
+    with contextlib.redirect_stdout(output):
+        # Splat has a bug where it will throw an exception if disassemble_all is True in the config and also passed as True
+        if disassemble_all and re.search(
+            r"disassemble_all:\\s*(?:true|yes)",
+            Path(config_path).read_text(),
+            re.IGNORECASE,
+        ):
+            disassemble_all = False
+        split.main(
+            config_path=[config_path],
+            modes=None,
+            verbose=False,
+            use_cache=False,
+            skip_version_check=False,
+            stdout_only=True,
+            disassemble_all=disassemble_all,
+        )
+    return output.getvalue()
+
 
 def mipsmatch(version, ref_ovls, bin_path):
     segments = []
     for ref_ovl in ref_ovls:
-        shell(f"cargo run --release --manifest-path tools/mipsmatch/Cargo.toml -- --output build/{version}/fingerprint.{ref_ovl}.yaml fingerprint build/{version}/{ref_ovl}.map build/{version}/{ref_ovl}.elf")
-        match_stream = shell(f"cargo run --release --manifest-path tools/mipsmatch/Cargo.toml -- scan build/{version}/fingerprint.{ref_ovl}.yaml {bin_path}")
+        shell(
+            f"cargo run --release --manifest-path tools/mipsmatch/Cargo.toml -- --output build/{version}/fingerprint.{ref_ovl}.yaml fingerprint build/{version}/{ref_ovl}.map build/{version}/{ref_ovl}.elf"
+        )
+        match_stream = shell(
+            f"cargo run --release --manifest-path tools/mipsmatch/Cargo.toml -- scan build/{version}/fingerprint.{ref_ovl}.yaml {bin_path}"
+        )
         matches = yaml.load_all(match_stream, Loader=yaml.SafeLoader)
         for match in matches:
             if match not in segments:
