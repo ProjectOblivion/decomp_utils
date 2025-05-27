@@ -474,9 +474,9 @@ def main(args):
                 f"git add {ovl_config.config_path} {ovl_config.ovl_symbol_addrs_path}"
             )
 
-    with decomp_utils.Spinner(message=f"adding header.c") as spinner:
+    #with decomp_utils.Spinner(message=f"adding header.c") as spinner:
         # Todo: Build header.c
-        spinner.message = f"adding e_init.c"
+        #spinner.message = f"adding e_init.c"
         # Todo: Parse final entity table and build e_init.c
 
 
@@ -501,20 +501,6 @@ if __name__ == "__main__":
         required=False,
         action="store_true",
         help="DESTRUCTIVE: Force recreation of overly configuration, symbol, and source files",
-    )
-    parser.add_argument(
-        "-c",
-        "--cross-ref",
-        required=False,
-        type=str,
-        help="Specify an existing overlay to cross reference the new overlay with.  Use the format <version>:<overlay>",
-    )
-    parser.add_argument(
-        "-s",
-        "--apply-suggestions",
-        required=False,
-        action="store_true",
-        help="Attempt to apply splat suggestions.  WARNING: may require manual adjustment of config to build after suggestions",
     )
     # Todo: Add option to use mipsmatch instead of native matching
     # Todo: Put this closer to where the multiprocessing is happening.
