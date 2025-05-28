@@ -25,8 +25,11 @@ Handles many tasks for adding an overlay:
 - Validates builds by comparing SHA1 hashes and updates check files
 
 Example usage: python3 tools/decomp_utils/generate_config.py lib --version=us
-"""
 
+Additonal notes:
+- If a segment has only one function, it is named as that function in snake case.  If the function name starts with Entity, it replaces it with 'e'.
+    For example: A segment with the only function being EntityShuttingWindow would be named as e_shutting_window
+"""
 
 def main(args):
     logger.info("Starting...")
@@ -103,7 +106,7 @@ def main(args):
 
     with decomp_utils.Spinner(message=f"gathering initial symbols") as spinner:
         header_symbols, entity_table_symbols, export_table_symbols = None, None, None
-        entity_table_symbol, export_table_symbol = None, None
+        entity_table_symbol, entity_table_address, export_table_symbol = None, None, None
         first_data_index = next(
             i for i, subseg in enumerate(ovl_config.subsegments) if "data" in subseg
         )
@@ -130,7 +133,7 @@ def main(args):
             )
             if stage_init and not ovl_config.symexport_path.exists():
                 spinner.message = "creating symexport file"
-                symexport_text = f"EXTERN(_binary_assets_{ovl_config.ovl_prefix}{"_" if ovl_config.ovl_prefix else ""}{ovl_config.name}_mwo_header_bin_start);\n"
+                symexport_text = f"EXTERN(_binary_assets_{ovl_config.path_prefix}{"_" if ovl_config.ovl_prefix else ""}{ovl_config.name}_mwo_header_bin_start);\n"
                 symexport_text += f"EXTERN({stage_init});\n"
                 ovl_config.symexport_path.write_text(symexport_text)
                 decomp_utils.shell(f"git add {ovl_config.symexport_path}")
@@ -177,11 +180,9 @@ def main(args):
                 )
                 if symbols is not None
                 for symbol in symbols
-            ) + (
-                decomp_utils.Symbol(
-                    f"{ovl_config.name.upper()}_EntityUpdates", entity_table_address
-                ),
             )
+            if entity_table_address:
+                parsed_symbols += (decomp_utils.Symbol(f"{ovl_config.name.upper()}_EntityUpdates", entity_table_address),)
             spinner.message = f"adding {len(parsed_symbols)} parsed symbols and splitting using updated symbols"
             decomp_utils.add_symbols(ovl_config, parsed_symbols)
             decomp_utils.shell(
@@ -190,25 +191,11 @@ def main(args):
             decomp_utils.shell(f"git clean -fdx {ovl_config.asm_path}")
             decomp_utils.splat_split(ovl_config.config_path)
 
-    with decomp_utils.Spinner(
-        message="extracting reference symbols from .elf files"
-    ) as spinner:
-        if elf_files := ovl_config.build_path.glob("*.elf"):
-            decomp_utils.force_symbols(
-                ovl_config.version,
-                tuple(x for x in elf_files if ovl_config.name not in x.name),
-            )
-        else:
-            logger.error(
-                f"No elf files found in {ovl_config.build_path}.  Rerun this tool after a successful build."
-            )
-            raise SystemExit
 
-    with decomp_utils.Spinner(message="disassembling reference functions"):
-        decomp_utils.shell(
-            f"git clean -fdx asm/{ovl_config.version}/ -e {ovl_config.asm_path}"
-        )
-        ref_lds, ref_ovls = [], []
+    with decomp_utils.Spinner(
+        message="creating .elf files for extracting reference symbols"
+    ) as spinner:
+        ref_basenames, ref_ovls = [], []
         for file in Path("config").iterdir():
             ref_version = (
                 "pspeu" in file.name
@@ -218,7 +205,7 @@ def main(args):
             ref_pattern = re.compile(
                 rf"splat\.\w+\.(?P<prefix>st|bo)?(?P<ref_ovl>\w+)\.yaml"
             )
-            # Todo: This should probably differentiate between stage and non-stage to reduce execution time
+            # Todo: Evaluate whether limiting to stage and non-stage overlays as references makes a practical difference in execution time
             if (
                 ref_version
                 and "main" not in file.name
@@ -228,16 +215,30 @@ def main(args):
                 and file.match("splat.*.yaml")
                 and (match := ref_pattern.match(file.name))
             ):
-                ref_lds.append(
-                    ovl_config.build_path.joinpath(
-                        f'{match.group("prefix") or ""}{match.group("ref_ovl")}'
-                    ).with_suffix(".ld")
-                )
+                ref_basenames.append(f'{match.group("prefix") or ""}{match.group("ref_ovl")}')
                 ref_ovls.append(match.group("ref_ovl"))
 
+        ref_lds = tuple(ovl_config.build_path.joinpath(basename).with_suffix(".ld") for basename in ref_basenames)
+        found_elfs = tuple(ovl_config.build_path.glob("*.elf"))
+        missing_elfs = (ld.with_suffix(".elf") for ld in ref_lds if ld.with_suffix(".elf") not in found_elfs)
+        decomp_utils.build(missing_elfs, plan=True, version=ovl_config.version)
+
+    with decomp_utils.Spinner(
+        message=f"extracting symbols from {len(ref_basenames)} reference .elf files"
+    ) as spinner:
+        decomp_utils.force_symbols(
+            tuple(ld.with_suffix(".elf") for ld in ref_lds),
+            version=ovl_config.version,
+        )
+
+        spinner.message=f"disassembling {len(ref_basenames)} reference overlays"
+        decomp_utils.shell(
+            f"git clean -fdx asm/{ovl_config.version}/ -e {ovl_config.asm_path}"
+        )
         decomp_utils.build(ref_lds, plan=False, version=ovl_config.version)
 
         # Removes forced symbols files
+        # Todo: checkout each file instead of the whole dir
         decomp_utils.shell("git checkout config/")
 
     with decomp_utils.Spinner(
@@ -292,7 +293,8 @@ def main(args):
         / f"first_{ovl_config.name}"
         / f"InitRoomEntities.s"
     )
-    if init_room_entities_path.exists():
+    # Sel has an InitRoomEntities function, but the symbols it references are different
+    if init_room_entities_path.exists() and ovl_config.name != "sel":
         with decomp_utils.Spinner(
             message=f"parsing InitRoomEntities.s for symbols"
         ) as spinner:
@@ -453,6 +455,12 @@ def main(args):
 
     built_bin = ovl_config.build_path / f"{ovl_config.target_path.name}"
     with decomp_utils.Spinner(message=f"building and validating {built_bin}"):
+        # rchi has a data value that gets interpreted as a global symbol, so that symbol needs to be defined for the linker
+        if ovl_config.name == "rchi" and ovl_config.platform == "psx":
+            undefined_syms = Path(f"config/undefined_syms.{ovl_config.version}.txt")
+            undefined_syms.write_text(f'PadRead{" "*13}= 0x80015288;\n{undefined_syms.read_text()}')
+            decomp_utils.shell(f"git add {undefined_syms}")
+
         decomp_utils.build(
             [
                 f'{ovl_config.ld_script_path.with_suffix(".elf")}',
@@ -503,6 +511,8 @@ if __name__ == "__main__":
         help="DESTRUCTIVE: Force recreation of overly configuration, symbol, and source files",
     )
     # Todo: Add option to use mipsmatch instead of native matching
+    # Todo: Add option to generate us and pspeu versions at the same time
+    # Todo: Add option for specifying log file
     # Todo: Put this closer to where the multiprocessing is happening.
     multiprocessing.log_to_stderr()
     multiprocessing.set_start_method("spawn")

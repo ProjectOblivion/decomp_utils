@@ -3,6 +3,7 @@ import struct
 import hashlib
 import decomp_utils.yaml_ext as yaml
 import decomp_utils.mips as mips
+from decomp_utils.helpers import get_logger
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Union, Any, Dict, List, Optional
@@ -323,7 +324,8 @@ class SotnOverlayConfig:
         )
         target_path = next(self.disk_path.rglob(bin_name), None)
         if not target_path:
-            raise FileNotFoundError(f"Could not find target path for {bin_name}")
+            get_logger().error(f"Could not find {bin_name} in {self.disk_path}")
+            raise SystemExit
         return target_path
 
     @property

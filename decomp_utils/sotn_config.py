@@ -593,7 +593,7 @@ extern RoomDef OVL_EXPORT(rooms_layers)[];
 extern u_long* OVL_EXPORT(gfxBanks)[];
 void UpdateStageEntities();
 
-AbbreviatedOverlay OVL_EXPORT(Overlay) = {
+Overlay OVL_EXPORT(Overlay) = {
     .Update = Update,
     .HitDetection = HitDetection,
     .UpdateRoomPosition = UpdateRoomPosition,
@@ -605,6 +605,13 @@ AbbreviatedOverlay OVL_EXPORT(Overlay) = {
     .tileLayers = OVL_EXPORT(rooms_layers),
     .gfxBanks = OVL_EXPORT(gfxBanks),
     .UpdateStageEntities = UpdateStageEntities,
+// RBO5,TOP,BO6
+//    .unk2C = ,
+//    .unk30 = ,
+// RBO6,RNO4,RBO1,NZ1,RNZ0,RCEN,BO7,RNZ1,RTOP
+//    .unk34 = ,
+//    .unk38 = ,
+//    .StageEndCutScene = ,
 };
 
 // #include "gen/sprite_banks.h"
@@ -621,8 +628,7 @@ def parse_psp_stage_init(asm_path):
         file_text = file.read_text()
         # Todo: Clean up the condition checks
         if (
-            " 06A8240E " in file_text
-            and " 1D09043C " in file_text
+            " 1D09043C " in file_text
             and " 38F78424 " in file_text
             and " E127240E " in file_text
             and " C708023C " in file_text
@@ -648,8 +654,6 @@ def parse_psp_stage_init(asm_path):
                 return file.stem, match.group("export"), match.group("entity")
         # I'm pretty sure all of these are found in the same file, but keeping this here just in case
         else:
-            if " 06A8240E " in file_text:
-                stage_init_file = file.stem
             if (
                 " 1D09043C " in file_text
                 and " 38F78424 " in file_text
@@ -667,6 +671,7 @@ def parse_psp_stage_init(asm_path):
                     re.VERBOSE,
                 )
                 if match:
+                    stage_init_file = file.stem
                     export_table_symbol = match.group("export")
             if " C708023C " in file_text and " 30BC43AC " in file_text:
                 match = re.search(
@@ -688,6 +693,8 @@ def parse_psp_stage_init(asm_path):
 
 
 def parse_psx_header(ovl_name, data_file_text):
+    # Account for both Abbreviated and full headers
+    # Account for difference in stage headers vs other headers
     psx_header = [
         "Update",
         "HitDetection",
@@ -700,6 +707,11 @@ def parse_psx_header(ovl_name, data_file_text):
         f"{ovl_name.upper()}_rooms_layers",
         f"{ovl_name.upper()}_gfxBanks",
         "UpdateStageEntities",
+#        "unk2C",
+#        "unk30",
+#        "unk34",
+#        "unk38",
+#        "StageEndCutScene",
     ]
 
     header_start = data_file_text.find("glabel ")
