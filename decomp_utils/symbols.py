@@ -159,7 +159,7 @@ def get_symbol_offset(ovl_config, symbol_name):
         return None
 
 
-def force_symbols(version, elf_files):
+def force_symbols(elf_files, version = "us"):
     # Excluding pspeu dra because it doesn't play nice with forced symbols currently
     for elf_file in (x for x in elf_files if version != "pspeu" or "dra" not in x.name):
         config = yaml.safe_load(

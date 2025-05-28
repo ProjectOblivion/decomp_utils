@@ -21,10 +21,14 @@ __all__ = [
     "parse_entity_table",
 ]
 
-
+"""
+This should only be the functionality specific to generating Castlevania: SotN configs
+Universal functionality should be in generate_config.py
+"""
 # Todo: Move all regex patterns to a common function
 # Todo: Review all str.find() instances for slicing vs start and end as parameters
 # Todo: Review glob usage
+# Todo: Move to a find -> parse function structure
 def find_segments(ovl_config):
     logger = get_logger()
     # Todo: Move this data structure to a more dynamic implementation
@@ -593,7 +597,7 @@ extern RoomDef OVL_EXPORT(rooms_layers)[];
 extern u_long* OVL_EXPORT(gfxBanks)[];
 void UpdateStageEntities();
 
-AbbreviatedOverlay OVL_EXPORT(Overlay) = {
+Overlay OVL_EXPORT(Overlay) = {
     .Update = Update,
     .HitDetection = HitDetection,
     .UpdateRoomPosition = UpdateRoomPosition,
@@ -605,6 +609,13 @@ AbbreviatedOverlay OVL_EXPORT(Overlay) = {
     .tileLayers = OVL_EXPORT(rooms_layers),
     .gfxBanks = OVL_EXPORT(gfxBanks),
     .UpdateStageEntities = UpdateStageEntities,
+// RBO5,TOP,BO6
+//    .unk2C = ,
+//    .unk30 = ,
+// RBO6,RNO4,RBO1,NZ1,RNZ0,RCEN,BO7,RNZ1,RTOP
+//    .unk34 = ,
+//    .unk38 = ,
+//    .StageEndCutScene = ,
 };
 
 // #include "gen/sprite_banks.h"
@@ -621,8 +632,7 @@ def parse_psp_stage_init(asm_path):
         file_text = file.read_text()
         # Todo: Clean up the condition checks
         if (
-            " 06A8240E " in file_text
-            and " 1D09043C " in file_text
+            " 1D09043C " in file_text
             and " 38F78424 " in file_text
             and " E127240E " in file_text
             and " C708023C " in file_text
@@ -648,8 +658,6 @@ def parse_psp_stage_init(asm_path):
                 return file.stem, match.group("export"), match.group("entity")
         # I'm pretty sure all of these are found in the same file, but keeping this here just in case
         else:
-            if " 06A8240E " in file_text:
-                stage_init_file = file.stem
             if (
                 " 1D09043C " in file_text
                 and " 38F78424 " in file_text
@@ -667,6 +675,7 @@ def parse_psp_stage_init(asm_path):
                     re.VERBOSE,
                 )
                 if match:
+                    stage_init_file = file.stem
                     export_table_symbol = match.group("export")
             if " C708023C " in file_text and " 30BC43AC " in file_text:
                 match = re.search(
@@ -688,6 +697,8 @@ def parse_psp_stage_init(asm_path):
 
 
 def parse_psx_header(ovl_name, data_file_text):
+    # Account for both Abbreviated and full headers
+    # Account for difference in stage headers vs other headers
     psx_header = [
         "Update",
         "HitDetection",
@@ -700,6 +711,11 @@ def parse_psx_header(ovl_name, data_file_text):
         f"{ovl_name.upper()}_rooms_layers",
         f"{ovl_name.upper()}_gfxBanks",
         "UpdateStageEntities",
+#        "unk2C",
+#        "unk30",
+#        "unk34",
+#        "unk38",
+#        "StageEndCutScene",
     ]
 
     header_start = data_file_text.find("glabel ")
@@ -726,19 +742,19 @@ def parse_psx_header(ovl_name, data_file_text):
 
 def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
     symbol_pattern = re.compile(
-        r"\s+/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s[0-9A-F]{8}\s\*/\s+[a-z]{1,5}[ \t]*\$\w+,\s%hi\(D_(?:\w+_)?([A-F0-9]{8})\)\s*"
+        r"\s+/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s[0-9A-F]{8}\s\*/\s+[a-z]{1,5}[ \t]*\$\w+,\s%hi\(D_(?:\w+_)?(?P<address>[A-F0-9]{8})\)\s*"
     )
     init_room_entities_map = {
         f"{ovl_name.upper()}_pStObjLayoutHorizontal": 14 if platform == "psp" else 9,
         f"{ovl_name.upper()}_pStObjLayoutVertical": 22 if platform == "psp" else 12,
         "g_LayoutObjHorizontal": 18 if platform == "psp" else 17,
         "g_LayoutObjVertical": 26 if platform == "psp" else 19,
-        "g_LayoutObjPosHorizontal": 121 if platform == "psp" else 81,
-        "g_LayoutObjPosVertical": 123 if platform == "psp" else 83,
+        "g_LayoutObjPosHorizontal": 138 if platform == "psp" and ovl_name == "rnz0" else 121 if platform == "psp" else 81,
+        "g_LayoutObjPosVertical": 140 if platform == "psp" and ovl_name == "rnz0" else 123 if platform == "psp" else 83,
     }
     lines = init_room_entities_path.read_text().splitlines()
     symbols = tuple(
-        Symbol(name, int(symbol_pattern.fullmatch(lines[i]).group(1), 16))
+        Symbol(name, int(symbol_pattern.fullmatch(lines[i]).group("address"), 16))
         for name, i in init_room_entities_map.items()
         if "(D_" in lines[i]
     )

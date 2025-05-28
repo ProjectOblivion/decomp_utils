@@ -1,6 +1,12 @@
 # decomp_utils
 A collection of python code to assist in decompilation efforts directly or by extending fantastic tools like [splat](https://github.com/ethteck/splat).
 
+## Requirements
+* Python 3.9 or higher - Written and tested using Python 3.12, there may be unknown incompatibilities with versions earlier than 3.12
+* [splat](https://github.com/ethteck/splat) - Tested against 0.27.3
+* [Levenshtein](https://github.com/rapidfuzz/Levenshtein) - Tested against 0.27.1
+* [Box](https://github.com/cdgriffith/Box) - Tested against 7.3.2
+
 ## Limitations
 Known limitations:
 
