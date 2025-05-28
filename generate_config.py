@@ -188,8 +188,13 @@ def main(args):
             decomp_utils.shell(
                 f"git add {ovl_config.config_path} {ovl_config.ovl_symbol_addrs_path}"
             )
+            if ovl_config.symexport_path and ovl_config.symexport_path.exists():
+                decomp_utils.shell(
+                    f"git add {ovl_config.symexport_path}"
+                )
             decomp_utils.shell(f"git clean -fdx {ovl_config.asm_path}")
             decomp_utils.splat_split(ovl_config.config_path)
+
 
 
     with decomp_utils.Spinner(
@@ -220,8 +225,9 @@ def main(args):
 
         ref_lds = tuple(ovl_config.build_path.joinpath(basename).with_suffix(".ld") for basename in ref_basenames)
         found_elfs = tuple(ovl_config.build_path.glob("*.elf"))
-        missing_elfs = (ld.with_suffix(".elf") for ld in ref_lds if ld.with_suffix(".elf") not in found_elfs)
-        decomp_utils.build(missing_elfs, plan=True, version=ovl_config.version)
+        missing_elfs = tuple(ld.with_suffix(".elf") for ld in ref_lds if ld.with_suffix(".elf") not in found_elfs)
+        if missing_elfs:
+            decomp_utils.build(missing_elfs, plan=True, version=ovl_config.version)
 
     with decomp_utils.Spinner(
         message=f"extracting symbols from {len(ref_basenames)} reference .elf files"
@@ -478,6 +484,10 @@ def main(args):
             logger.error(f"{built_bin} did not match {ovl_config.target_path}")
             raise SystemExit
         else:
+            if ovl_config.symexport_path and ovl_config.symexport_path.exists():
+                decomp_utils.shell(
+                    f"git add {ovl_config.symexport_path}"
+                )
             decomp_utils.shell(
                 f"git add {ovl_config.config_path} {ovl_config.ovl_symbol_addrs_path}"
             )
