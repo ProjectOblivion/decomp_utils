@@ -32,22 +32,6 @@ Additonal notes:
     For example: A segment with the only function being EntityShuttingWindow would be named as e_shutting_window
 """
 
-__all__ = [
-    "find_segments",
-    "find_symbols",
-    "rename_symbols",
-    "get_default",
-    "parse_psp_stage_init",
-    "parse_psx_header",
-    "parse_init_room_entities",
-    "parse_export_table",
-    "parse_entity_table",
-]
-
-"""
-This should only be the functionality specific to generating Castlevania: SotN configs
-Universal functionality should be in generate_config.py
-"""
 # Todo: Move all regex patterns to a common function
 # Todo: Review all str.find() instances for slicing vs start and end as parameters
 # Todo: Review glob usage
@@ -90,7 +74,7 @@ def find_segments(ovl_config):
         ),
         Box(
             name="blit_char",
-            start=f'{"func_psp_0923C2F8" if ovl_config.version == "pspeu" else "BlitChar"}',
+            start="func_psp_0923C2F8" if ovl_config.version == "pspeu" else "BlitChar",
             end="BlitChar",
             default_box=True,
         ),
@@ -108,13 +92,13 @@ def find_segments(ovl_config):
         ),
         Box(
             name="e_stage_name",
-            start=f'{"func_psp_0923C0C0" if ovl_config.version == "pspeu" else "StageNamePopupHelper"}',
+            start="func_psp_0923C0C0" if ovl_config.version == "pspeu" else "StageNamePopupHelper",
             end="EntityStageNamePopup",
             default_box=True,
         ),
         Box(
             name="e_particles",
-            start=f'{"func_psp_0923AD68" if ovl_config.version == "pspeu" else "EntitySoulStealOrb"}',
+            start="func_psp_0923AD68" if ovl_config.version == "pspeu" else "EntitySoulStealOrb",
             end="EntityEnemyBlood",
             default_box=True,
         ),
@@ -186,8 +170,8 @@ def find_segments(ovl_config):
         ),
         Box(
             name="e_breakable",
-            start="EntityBreakable",
-            end="EntityBreakable",
+            start="EntityUnkBreakable",
+            end="EntityUnkBreakable",
             default_box=True,
         ),
         Box(
@@ -255,14 +239,12 @@ def find_segments(ovl_config):
         rf"glabel (?:jtbl|D)_{ovl_config.version}_[0-9A-F]{{8}}\n\s+/\*\s([0-9A-F]{{1,5}})\s"
     )
     known_starts = {x.start: x for x in known_files}
-
     src_text = ovl_config.first_src_file.read_text()
 
     segment_meta = None
     functions = deque()
     for match in include_asm_pattern.finditer(src_text):
         asm_dir, current_function = match.groups()
-
         if current_function in known_starts:
             if segment_meta:
                 if len(functions) == 1:
@@ -1339,7 +1321,7 @@ def main(args):
         first_text_index = next(
             i for i, subseg in enumerate(ovl_config.subsegments) if "c" in subseg
         )
-        segments, rodata_segments = decomp_utils.find_segments(ovl_config)
+        segments, rodata_segments = find_segments(ovl_config)
         text_subsegs = [
             decomp_utils.yaml.FlowSegment([segment.offset.int, "c", segment.name])
             for segment in segments
