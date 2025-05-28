@@ -21,10 +21,14 @@ __all__ = [
     "parse_entity_table",
 ]
 
-
+"""
+This should only be the functionality specific to generating Castlevania: SotN configs
+Universal functionality should be in generate_config.py
+"""
 # Todo: Move all regex patterns to a common function
 # Todo: Review all str.find() instances for slicing vs start and end as parameters
 # Todo: Review glob usage
+# Todo: Move to a find -> parse function structure
 def find_segments(ovl_config):
     logger = get_logger()
     # Todo: Move this data structure to a more dynamic implementation
@@ -738,19 +742,19 @@ def parse_psx_header(ovl_name, data_file_text):
 
 def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
     symbol_pattern = re.compile(
-        r"\s+/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s[0-9A-F]{8}\s\*/\s+[a-z]{1,5}[ \t]*\$\w+,\s%hi\(D_(?:\w+_)?([A-F0-9]{8})\)\s*"
+        r"\s+/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s[0-9A-F]{8}\s\*/\s+[a-z]{1,5}[ \t]*\$\w+,\s%hi\(D_(?:\w+_)?(?P<address>[A-F0-9]{8})\)\s*"
     )
     init_room_entities_map = {
         f"{ovl_name.upper()}_pStObjLayoutHorizontal": 14 if platform == "psp" else 9,
         f"{ovl_name.upper()}_pStObjLayoutVertical": 22 if platform == "psp" else 12,
         "g_LayoutObjHorizontal": 18 if platform == "psp" else 17,
         "g_LayoutObjVertical": 26 if platform == "psp" else 19,
-        "g_LayoutObjPosHorizontal": 121 if platform == "psp" else 81,
-        "g_LayoutObjPosVertical": 123 if platform == "psp" else 83,
+        "g_LayoutObjPosHorizontal": 138 if platform == "psp" and ovl_name == "rnz0" else 121 if platform == "psp" else 81,
+        "g_LayoutObjPosVertical": 140 if platform == "psp" and ovl_name == "rnz0" else 123 if platform == "psp" else 83,
     }
     lines = init_room_entities_path.read_text().splitlines()
     symbols = tuple(
-        Symbol(name, int(symbol_pattern.fullmatch(lines[i]).group(1), 16))
+        Symbol(name, int(symbol_pattern.fullmatch(lines[i]).group("address"), 16))
         for name, i in init_room_entities_map.items()
         if "(D_" in lines[i]
     )

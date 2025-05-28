@@ -24,7 +24,7 @@ Handles many tasks for adding an overlay:
 - Parses and logs suggestions for segment splits from splat output
 - Validates builds by comparing SHA1 hashes and updates check files
 
-Example usage: python3 tools/decomp_utils/generate_config.py lib --version=us
+Example usage: python3 tools/decomp_utils/generate_sotn_config.py lib --version=us
 
 Additonal notes:
 - If a segment has only one function, it is named as that function in snake case.  If the function name starts with Entity, it replaces it with 'e'.
@@ -44,6 +44,7 @@ def main(args):
     else:
         ovl_config.write_config()
         with decomp_utils.Spinner(message="ensuring no overlay artifacts exist"):
+            # Todo: Create "blank slate" function
             ovl_config.config_path.unlink(missing_ok=True)
             ovl_config.ovl_symbol_addrs_path.unlink(missing_ok=True)
             if ovl_config.symexport_path:
@@ -64,6 +65,7 @@ def main(args):
                 shutil.rmtree(ovl_config.src_path_full)
 
     with decomp_utils.Spinner(message="creating initial files") as spinner:
+        # Todo: Create "extraction init" function
         ovl_config.write_config()
         for symbol_path in ovl_config.symbol_addrs_path:
             symbol_path.touch(exist_ok=True)
@@ -105,6 +107,7 @@ def main(args):
         decomp_utils.build(build=False, version=ovl_config.version)
 
     with decomp_utils.Spinner(message=f"gathering initial symbols") as spinner:
+        # Cleanup and split to functions as needed
         header_symbols, entity_table_symbols, export_table_symbols = None, None, None
         entity_table_symbol, entity_table_address, export_table_symbol = None, None, None
         first_data_index = next(
@@ -461,10 +464,16 @@ def main(args):
 
     built_bin = ovl_config.build_path / f"{ovl_config.target_path.name}"
     with decomp_utils.Spinner(message=f"building and validating {built_bin}"):
-        # rchi has a data value that gets interpreted as a global symbol, so that symbol needs to be defined for the linker
+        # These blocks may result in misordered symbols, but it isn't worth addressing for one time use blocks
+        # psx rchi has a data value that gets interpreted as a global symbol, so that symbol needs to be defined for the linker
         if ovl_config.name == "rchi" and ovl_config.platform == "psx":
             undefined_syms = Path(f"config/undefined_syms.{ovl_config.version}.txt")
             undefined_syms.write_text(f'PadRead{" "*13}= 0x80015288;\n{undefined_syms.read_text()}')
+            decomp_utils.shell(f"git add {undefined_syms}")
+        # psp bo4 has data values that get interpreted as a global symbol, so that symbol needs to be defined for the linker
+        elif ovl_config.name == "bo4" and ovl_config.platform == "psp":
+            undefined_syms = Path(f"config/undefined_syms.{ovl_config.version}.txt")
+            undefined_syms.write_text(f'g_Clut{" "*13}= 0x091F5DF8;\n{undefined_syms.read_text()}')
             decomp_utils.shell(f"git add {undefined_syms}")
 
         decomp_utils.build(
