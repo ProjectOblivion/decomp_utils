@@ -31,6 +31,38 @@ Additonal notes:
     For example: A segment with the only function being EntityShuttingWindow would be named as e_shutting_window
 """
 
+def ovl_sort(name):
+    # Todo: This should ikely be simplified
+    game = "dra ric maria "
+    stage = "are cat cen chi dai dre lib mad no0 no1 no2 no3 no4 np3 nz0 nz1 sel st0 top wrp "
+    r_stage = "rare rcat rcen rchi rdai rlib rno0 rno1 rno2 rno3 rno4 rnz0 rnz1 rtop rwrp "
+    boss = "bo0 bo1 bo2 bo3 bo4 bo5 bo6 bo7 mar rbo0 rbo1 rbo2 rbo3 rbo4 rbo5 rbo6 rbo7 rbo8 "
+    servant = "tt_000 tt_001 tt_002 tt_003 tt_004 tt_005 tt_006 "
+
+    name = Path(name).stem.lower()
+    basename = name.replace("f_", "")
+    if basename == "main":
+        group = 0
+    elif basename in stage:
+        group = 2
+    elif basename in r_stage:
+        group = 3
+    elif basename in boss:
+        group = 4
+    elif basename in boss and basename.startswith("r"):
+        group = 5
+    # Slightly out of order so that mar gets grabbed by boss instead of game
+    elif basename in game:
+        group = 1
+    elif name in servant:
+        group = 6
+    elif "weapon" in name or "w0_" in name or "w1_" in name:
+        group = 7
+    else:
+        group = 8
+
+    return (group, basename, name.startswith("f_"))
+
 def main(args):
     logger.info("Starting...")
     with decomp_utils.Spinner(message="generating config"):
@@ -96,7 +128,9 @@ def main(args):
                 new_lines.append(fbin_line)
         if new_lines != check_file_lines:
             # Todo: Order the sha1 lines correctly
-            check_file_path.write_text(f"{"\n".join(new_lines)}\n")
+            sorted_lines = sorted(new_lines, key=lambda x: ovl_sort(x.split()[-1]))
+            check_file_path.write_text(f"{"\n".join(sorted_lines)}\n")
+
         decomp_utils.shell(f"git add {check_file_path}")
 
         spinner.message = f"performing initial split with {ovl_config.config_path}"
