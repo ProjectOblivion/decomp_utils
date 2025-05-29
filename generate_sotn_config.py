@@ -9,7 +9,7 @@ import hashlib
 from concurrent.futures import ProcessPoolExecutor
 from collections import Counter, deque, defaultdict
 from pathlib import Path
-from box import Box
+from types import SimpleNamespace
 import multiprocessing
 
 """
@@ -39,194 +39,163 @@ Additonal notes:
 def find_segments(ovl_config):
     # Todo: Move this data structure to a more dynamic implementation
     known_files = [
-        Box(
+        SimpleNamespace(
             name="e_red_door",
             start="EntityIsNearPlayer",
             end=f"{ovl_config.name.upper}_EntityRedDoor",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="st_update",
             start="Random",
             end="UpdateStageEntities",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="st_collision",
             start="HitDetection",
             end="EntityDamageDisplay",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="create_entity",
             start="CreateEntityFromLayout",
             end="CreateEntityFromEntity",
-            default_box=True,
         ),
-        Box(
-            name="st_init", start="GetLangAt", end="func_psp_09254120", default_box=True
+        SimpleNamespace(
+            name="st_init", start="GetLangAt", end="func_psp_09254120",
         ),
-        Box(
+        SimpleNamespace(
             name="st_common",
             start="DestroyEntity",
             end="ReplaceBreakableWithItemDrop",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="blit_char",
             start="func_psp_0923C2F8" if ovl_config.version == "pspeu" else "BlitChar",
             end="BlitChar",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_misc",
             start="CheckColliderOffsets",
             end="PlaySfxPositional",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_misc_2",
             start="EntityHeartDrop",
             end="EntityMessageBox",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_stage_name",
             start="func_psp_0923C0C0" if ovl_config.version == "pspeu" else "StageNamePopupHelper",
             end="EntityStageNamePopup",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_particles",
             start="func_psp_0923AD68" if ovl_config.version == "pspeu" else "EntitySoulStealOrb",
             end="EntityEnemyBlood",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_collect",
             start="PrizeDropFall",
             end="EntityRelicOrb",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_room_fg",
             start="EntityRoomForeground",
             end="EntityRoomForeground",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_popup",
             start="BottomCornerText",
             end="BottomCornerText",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="prim_helpers",
             start="UnkPrimHelper",
             end="PrimDecreaseBrightness",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_axe_knight",
             start="AxeKnightUnkFunc1",
             end="EntityAxeKnightThrowingAxe",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_skeleton",
             start="SkeletonAttackCheck",
             end="UnusedSkeletonEntity",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_fire_warg",
             start="func_801CC5A4",
             end="EntityFireWargDeathBeams",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_warg",
             start="func_801CF438",
             end="EntityWargExplosionPuffTransparent",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="st_debug",
             start=f"{ovl_config.name.upper()}_EntityBackgroundBlock",
             end=f"{ovl_config.name.upper()}_EntityLockCamera",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_venus_weed",
             start="SetupPrimsForEntitySpriteParts",
             end="EntityVenusWeedSpike",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="water_effects",
             start="func_801C4144",
             end="EntityWaterDrop",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_breakable",
             start="EntityUnkBreakable",
             end="EntityUnkBreakable",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_jewel_sword_puzzle",
             start="EntityMermanRockLeftSide",
             end="EntityFallingRock2",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_castle_door",
             start="EntityCastleDoor",
             end="EntityCastleDoor",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_background_bushes_trees",
             start="EntityBackgroundBushes",
             end="EntityBackgroundTrees",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_sky_entities",
             start="EntityLightningThunder",
             end="EntityLightningCloud",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_trapdoor",
             start="EntityTrapDoor",
             end="EntityTrapDoor",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="entrance_weights",
             start="UpdateWeightChains",
             end="EntityPathBlockTallWeight",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_heartroom",
             start="EntityHeartRoomSwitch",
             end="EntityHeartRoomGoldDoor",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_cavern_door",
             start="DoorCascadePhysics",
             end="EntityCavernDoor",
-            default_box=True,
         ),
-        Box(
+        SimpleNamespace(
             name="e_stairway",
             start="EntityStairwayPiece",
             end="EntityFallingRock",
-            default_box=True,
         ),
     ]
 
@@ -258,17 +227,18 @@ def find_segments(ovl_config):
                 segment_meta = None
 
             segment_meta = known_starts[current_function]
+            segment_meta.offset = None
             if ovl_config.version == "pspeu":
                 segment_meta.name = f"{ovl_config.segment_prefix}{segment_meta.name}"
             segment_meta.asm_dir = asm_dir
         elif not segment_meta:
-            segment_meta = Box(
-                start=current_function, end=None, asm_dir=asm_dir, default_box=True
+            segment_meta = SimpleNamespace(
+                name=None, start=current_function, end=None, asm_dir=asm_dir, offset=None
             )
 
         if segment_meta and not segment_meta.offset:
             if offset := decomp_utils.get_symbol_offset(ovl_config, current_function):
-                segment_meta.offset.int = offset
+                segment_meta.offset = SimpleNamespace(int = offset)
                 segment_meta.offset.str = f"{segment_meta.offset.int:X}"
             else:
                 asm_path = (
@@ -278,7 +248,7 @@ def find_segments(ovl_config):
                 if first_offset := re.search(
                     rf"glabel {current_function}\s+/\*\s([0-9A-F]{{1,5}})\s", asm_text
                 ):
-                    segment_meta.offset.str = first_offset.group(1)
+                    segment_meta.offset = SimpleNamespace(str = first_offset.group(1))
                     segment_meta.offset.int = int(segment_meta.offset.str, 16)
         if not segment_meta.name and segment_meta.offset:
             segment_meta.name = (
@@ -343,7 +313,7 @@ def find_segments(ovl_config):
         for rodata_symbol in include_rodata_pattern.findall(segment_text):
             rodata_offset = decomp_utils.get_symbol_offset(ovl_config, rodata_symbol)
             rodata_subsegments.append(
-                Box(offset=rodata_offset, type=".rodata", name=segment.name)
+                SimpleNamespace(offset=rodata_offset, type=".rodata", name=segment.name)
             )
 
         # Extract rodata offsets from assembly files referenced in INCLUDE_ASM macros
@@ -369,7 +339,7 @@ def find_segments(ovl_config):
                 )
                 for rodata_offset in rodata_pattern.findall(rodata_text):
                     rodata_subsegments.append(
-                        Box(
+                        SimpleNamespace(
                             offset=int(rodata_offset, 16),
                             type=".rodata",
                             name=segment.name,
@@ -440,34 +410,32 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
             check_names = tuple(func.stem for func in check_paths)
             matches.add((ref_paths, ref_names, check_paths, check_names))
     matches = tuple(
-        Box(
-            {
-                "ref": {
-                    "paths": ref_paths,
-                    "names": {
-                        "all": tuple(set(ref_names)),
-                        "no_defaults": tuple(
+        SimpleNamespace(
+            ref = SimpleNamespace(
+                    paths = ref_paths,
+                    names = SimpleNamespace(
+                        all = tuple(set(ref_names)),
+                        no_defaults = tuple(
                             {
                                 name
                                 for name in ref_names
                                 if not name.startswith(f"func_{version}")
                             }
                         ),
-                    },
-                    "counts": {
-                        "all": Counter(ref_names).most_common(),
-                        "no_defaults": Counter(
+                    ),
+                    counts = SimpleNamespace(
+                        all = Counter(ref_names).most_common(),
+                        no_defaults = Counter(
                             tuple(
                                 name
                                 for name in ref_names
                                 if not name.startswith(f"func_{version}")
                             )
                         ).most_common(),
-                    },
-                },
-                "check": {"paths": check_paths, "names": check_names},
-                "score": score,
-            }
+                    ),
+            ),
+                check = SimpleNamespace(paths = check_paths, names = check_names),
+                score = score,
         )
         for ref_paths, ref_names, check_paths, check_names in matches
     )
@@ -476,18 +444,18 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
 
 def rename_symbols(ovl_config, matches):
     known_pairs = (
-        Box(first="func_801CC5A4", last="func_801CF438"),
-        Box(first="func_801CC90C", last="func_801CF6D8"),
-        Box(first="EntityIsNearPlayer", last="MagicallySealedDoorIsNearPlayer"),
-        Box(first="GetAnglePointToEntityShifted", last="GetAnglePointToEntity"),
-        Box(
+        SimpleNamespace(first="func_801CC5A4", last="func_801CF438"),
+        SimpleNamespace(first="func_801CC90C", last="func_801CF6D8"),
+        SimpleNamespace(first="EntityIsNearPlayer", last="MagicallySealedDoorIsNearPlayer"),
+        SimpleNamespace(first="GetAnglePointToEntityShifted", last="GetAnglePointToEntity"),
+        SimpleNamespace(
             first="CreateEntityWhenInVerticalRange",
             last="CreateEntityWhenInHorizontalRange",
         ),
-        Box(first="FindFirstEntityToTheRight", last="FindFirstEntityAbove"),
-        Box(first="FindFirstEntityToTheLeft", last="FindFirstEntityBelow"),
-        Box(first="CreateEntitiesToTheRight", last="CreateEntitiesAbove"),
-        Box(first="CreateEntitiesToTheLeft", last="CreateEntitiesBelow"),
+        SimpleNamespace(first="FindFirstEntityToTheRight", last="FindFirstEntityAbove"),
+        SimpleNamespace(first="FindFirstEntityToTheLeft", last="FindFirstEntityBelow"),
+        SimpleNamespace(first="CreateEntitiesToTheRight", last="CreateEntitiesAbove"),
+        SimpleNamespace(first="CreateEntitiesToTheLeft", last="CreateEntitiesBelow"),
     )
     symbols = defaultdict(list)
     for match in matches:
@@ -978,7 +946,7 @@ def main(args):
         header_path = (
             ovl_config.src_path_full.with_name(ovl_config.name) / f"{ovl_config.name}.h"
         )
-        ovl_header_text = decomp_utils.get_default("ovl.h").format(
+        ovl_header_text = get_default("ovl.h").format(
             ovl_name=ovl_config.name.upper()
         )
         if not header_path.exists():
@@ -1032,7 +1000,7 @@ def main(args):
         if ovl_config.platform == "psx" and first_data_text:
             spinner.message = f"parsing the psx header for symbols"
             pStObjLayoutHorizontal_address, header_symbols = (
-                decomp_utils.parse_psx_header(ovl_config.name, first_data_text)
+                parse_psx_header(ovl_config.name, first_data_text)
             )
 
         if ovl_config.platform == "psp":
@@ -1070,14 +1038,14 @@ def main(args):
         if entity_table_symbol:
             spinner.message = f"parsing the entity table for symbols"
             entity_table_address, entity_table_symbols = (
-                decomp_utils.parse_entity_table(
+                parse_entity_table(
                     ovl_config.name, entity_table_symbol, first_data_text
                 )
             )
 
         if export_table_symbol:
             spinner.message = f"parsing the export table for symbols"
-            export_table_symbols = decomp_utils.parse_export_table(
+            export_table_symbols = parse_export_table(
                 ovl_config.ovl_type, export_table_symbol, first_data_text
             )
 
@@ -1179,7 +1147,7 @@ def main(args):
                     for f in filenames
                     if f.startswith(f"func_{ovl_config.version}_")
                 )
-        parsed = Box(
+        parsed = SimpleNamespace(
             ref_files=decomp_utils.parse_files(ref_files),
             check_files=decomp_utils.parse_files(check_files),
         )
@@ -1187,10 +1155,10 @@ def main(args):
     with decomp_utils.Spinner(
         message="finding symbol names using reference overlays"
     ) as spinner:
-        matches = decomp_utils.find_symbols(
+        matches = find_symbols(
             parsed, ovl_config.version, ovl_config.name, threshold=0.95
         )
-        num_symbols = decomp_utils.rename_symbols(ovl_config, matches)
+        num_symbols = rename_symbols(ovl_config, matches)
 
     if num_symbols:
         with decomp_utils.Spinner(
@@ -1216,7 +1184,7 @@ def main(args):
             message=f"parsing InitRoomEntities.s for symbols"
         ) as spinner:
             init_room_entities_symbols, create_entity_bss_address = (
-                decomp_utils.parse_init_room_entities(
+                parse_init_room_entities(
                     ovl_config.name, ovl_config.platform, init_room_entities_path
                 )
             )

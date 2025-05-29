@@ -6,7 +6,6 @@ from .sotn_overlay import *
 from .helpers import *
 from .symbols import *
 from .asm_compare import *
-from .sotn_config import *
 
 __all__ = (
     yaml,
@@ -15,5 +14,4 @@ __all__ = (
     *helpers.__all__,
     *symbols.__all__,
     *asm_compare.__all__,
-    *sotn_config.__all__,
 )
