@@ -6,6 +6,9 @@ import decomp_utils.mips as mips
 from decomp_utils.helpers import get_logger
 from pathlib import Path
 from types import SimpleNamespace
+
+# Todo: Convert non-mutating SimpleNamespace to namedtuple
+from collections import namedtuple
 from typing import Union, Any, Dict, List, Optional
 
 __all__ = [
@@ -19,7 +22,7 @@ __all__ = [
 ]
 
 # Pseudo enum for my own convenience
-NULL = SimpleNamespace(BYTE=b"\x00", INT=0x0, STR="", LIST=[], DICT={})
+NULL = namedtuple("Null", ["BYTE", "INT", "STR"])(b"\x00", 0x0, "")
 
 
 class MwOverlayHeader:
@@ -100,9 +103,9 @@ class SotnOverlayConfig:
     # Base definitions for properties that use a pseudo-caching structure
     _mwo_header: Optional[MwOverlayHeader] = None
     _bin_bytes: bytes = b""
-    _options_dict: Dict[Any] = NULL.DICT
-    _segments: List[Any] = NULL.LIST
-    _subsegments: List[Any] = NULL.LIST
+    _options_dict: Dict[Any] = {}
+    _segments: List[Any] = []
+    _subsegments: List[Any] = []
 
     def __init__(self, name: str, version: str) -> None:
         # common definitions
@@ -304,17 +307,25 @@ class SotnOverlayConfig:
         servant = "tt_000 tt_001 tt_002 tt_003 tt_004 tt_005 tt_006 "
 
         if f"{self.name} " in game:
-            return SimpleNamespace(label="game", ovl_prefix="", path_prefix="")
+            return namedtuple("GameOvl", ["label", "ovl_prefix", "path_prefix"])(
+                "game", "", ""
+            )
         elif f"{self.name} " in stage + r_stage:
-            return SimpleNamespace(label="stage", ovl_prefix="st", path_prefix="st")
+            return namedtuple("StageOvl", ["label", "ovl_prefix", "path_prefix"])(
+                "stage", "st", "st"
+            )
         elif f"{self.name} " in boss:
-            return SimpleNamespace(label="boss", ovl_prefix="bo", path_prefix="boss")
+            return namedtuple("BossOvl", ["label", "ovl_prefix", "path_prefix"])(
+                "boss", "bo", "boss"
+            )
         elif f"{self.name} " in servant:
-            return SimpleNamespace(
-                label="servant", ovl_prefix="", path_prefix="servant"
+            return namedtuple("ServantOvl", ["label", "ovl_prefix", "path_prefix"])(
+                "servant", "", "servant"
             )
         elif "w0_" in self.name or "w1_" in self.name:
-            return SimpleNamespace(label="weapon", ovl_prefix="", path_prefix="weapon")
+            return namedtuple("WeaponOvl", ["label", "ovl_prefix", "path_prefix"])(
+                "weapon", "", "weapon"
+            )
         else:
             raise ValueError(f"Unknown overlay type for '{self.name}'")
 

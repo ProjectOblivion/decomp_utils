@@ -5,7 +5,6 @@ A collection of python code to assist in decompilation efforts directly or by ex
 * Python 3.9 or higher - Written and tested using Python 3.12, there may be unknown incompatibilities with versions earlier than 3.12
 * [splat](https://github.com/ethteck/splat) - Tested against 0.27.3
 * [Levenshtein](https://github.com/rapidfuzz/Levenshtein) - Tested against 0.27.1
-* [Box](https://github.com/cdgriffith/Box) - Tested against 7.3.2
 
 ## Limitations
 Known limitations:
@@ -21,7 +20,7 @@ Known limitations:
 * Adding tests
 
 ## Future tasks, to be accomplished eventually
-* Become a project that offers usefulness to any decomp project
+* Become something awesome
 
 ## Special thanks
 
