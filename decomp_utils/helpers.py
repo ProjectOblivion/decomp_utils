@@ -137,7 +137,7 @@ class Spinner:
         time.sleep(self.interval)  # Wait for the last cycle to finish
         if killed or exception is not None:
             self.write(
-                f"\r{TTY.RED}{TTY.BOLD}✖{TTY.RESET} {self.message}\n", self.output_to
+                f"\r{TTY.RED}{TTY.BOLD}✖{TTY.RESET} {self.message} ({round(time.perf_counter() - self.start_time, 2)}s)\n", self.output_to
             )
         else:
             self.write(

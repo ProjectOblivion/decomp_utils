@@ -57,7 +57,7 @@ def remove_orphans_from_config(config_path):
         match.group("name"): match.group(0).rstrip("\n") for match in symbol_lines
     }
     asm_path = Path(config["options"]["asm_path"])
-    asm_file_list = list(asm_path.rglob("*.s"))
+    asm_file_list = [dirpath/f for dirpath, _, filenames in asm_path.walk() for f in filenames if ".data.s" not in f]
     if not asm_file_list:
         logger.error(
             f"No files found in '{asm_path}' to extract symbols from for '{symbol_file}', making no changes."

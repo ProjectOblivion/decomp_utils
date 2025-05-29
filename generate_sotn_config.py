@@ -34,8 +34,7 @@ Additonal notes:
 
 # Todo: Move all regex patterns to a common function
 # Todo: Review all str.find() instances for slicing vs start and end as parameters
-# Todo: Review glob usage
-# Todo: Move to a find -> parse function structure
+# Todo: Move to find -> parse function naming and structure
 def find_segments(ovl_config):
     # Todo: Move this data structure to a more dynamic implementation
     known_files = [
@@ -597,7 +596,7 @@ Overlay OVL_EXPORT(Overlay) = {
 def parse_psp_stage_init(asm_path):
     stage_init_file, export_table_symbol, entity_table_symbol = None, None, None
 
-    for file in asm_path.rglob("*.s"):
+    for file in (dirpath/f for dirpath, _, filenames in asm_path.walk() for f in filenames if ".data.s" not in f):
         file_text = file.read_text()
         # Todo: Clean up the condition checks
         if (
