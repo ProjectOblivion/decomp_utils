@@ -6,6 +6,7 @@ import decomp_utils.mips as mips
 from decomp_utils.helpers import get_logger
 from pathlib import Path
 from types import SimpleNamespace
+
 # Todo: Convert non-mutating SimpleNamespace to namedtuple
 from collections import namedtuple
 from typing import Union, Any, Dict, List, Optional
@@ -22,6 +23,7 @@ __all__ = [
 
 # Pseudo enum for my own convenience
 NULL = namedtuple("Null", ["BYTE", "INT", "STR"])(b"\x00", 0x0, "")
+
 
 class MwOverlayHeader:
     """A Python implementation of the MetroWerks overlay header"""
@@ -305,15 +307,25 @@ class SotnOverlayConfig:
         servant = "tt_000 tt_001 tt_002 tt_003 tt_004 tt_005 tt_006 "
 
         if f"{self.name} " in game:
-            return namedtuple("GameOvl", ["label", "ovl_prefix", "path_prefix"])("game", "", "")
+            return namedtuple("GameOvl", ["label", "ovl_prefix", "path_prefix"])(
+                "game", "", ""
+            )
         elif f"{self.name} " in stage + r_stage:
-            return namedtuple("StageOvl", ["label", "ovl_prefix", "path_prefix"])("stage", "st", "st")
+            return namedtuple("StageOvl", ["label", "ovl_prefix", "path_prefix"])(
+                "stage", "st", "st"
+            )
         elif f"{self.name} " in boss:
-            return namedtuple("BossOvl", ["label", "ovl_prefix", "path_prefix"])("boss", "bo", "boss")
+            return namedtuple("BossOvl", ["label", "ovl_prefix", "path_prefix"])(
+                "boss", "bo", "boss"
+            )
         elif f"{self.name} " in servant:
-            return namedtuple("ServantOvl", ["label", "ovl_prefix", "path_prefix"])("servant", "", "servant")
+            return namedtuple("ServantOvl", ["label", "ovl_prefix", "path_prefix"])(
+                "servant", "", "servant"
+            )
         elif "w0_" in self.name or "w1_" in self.name:
-            return namedtuple("WeaponOvl", ["label", "ovl_prefix", "path_prefix"])("weapon", "", "weapon")
+            return namedtuple("WeaponOvl", ["label", "ovl_prefix", "path_prefix"])(
+                "weapon", "", "weapon"
+            )
         else:
             raise ValueError(f"Unknown overlay type for '{self.name}'")
 
