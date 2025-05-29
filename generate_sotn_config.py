@@ -400,7 +400,7 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
         (ref_ops_by_op_hash, check_ops_by_op_hash), num_buckets=20, tolerance=0.1
     )
 
-    args = (
+    kwargs = (
         {
             "ref_ops_by_op_hash": bucket[0],
             "check_ops_by_op_hash": bucket[1],
@@ -409,7 +409,7 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
         for bucket in buckets
     )
     with ProcessPoolExecutor() as executor:
-        results = executor.map(decomp_utils.find_matches, args)
+        results = executor.map(decomp_utils.find_matches, kwargs)
 
     matches = set()
     for ref_op_hash, results in decomp_utils.group_results(results).items():

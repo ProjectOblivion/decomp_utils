@@ -139,9 +139,9 @@ def generate_clusters(version, overlays, threshold=0.95, exclude=[], debug=False
     ops_by_op_hash = {k: v[0].ops.parsed for k, v in funcs_by_op_hash.items()}
     buckets = get_buckets((ops_by_op_hash,), tolerance=0.1, num_buckets=25)
 
-    args = ({"ops_by_op_hash": bucket[0], "threshold": threshold} for bucket in buckets)
+    kwargs = ({"ops_by_op_hash": bucket[0], "threshold": threshold} for bucket in buckets)
     with ProcessPoolExecutor() as executor:
-        results = executor.map(find_matches, args)
+        results = executor.map(find_matches, kwargs)
 
     hierarchy_group = build_hierarchy(
         [k for k, v in funcs_by_op_hash.items() if len(v) > 1],
@@ -343,11 +343,10 @@ def calculate_score(string_similarity, sequence_similarity):
     # Unsure which is these gives more accurate scoring, so using both for now and taking the higher one
     return max(weighted_score, composite_score), weighted_score, composite_score
 
-
-def find_matches(args, debug=True):
+def find_matches(kwargs, debug=True):
     results = []
-    if "ops_by_op_hash" in args:
-        queue = deque(args["ops_by_op_hash"].items())
+    if "ops_by_op_hash" in kwargs:
+        queue = deque(kwargs["ops_by_op_hash"].items())
         while queue:
             ref_ops_hash, ref_ops = queue.popleft()
             for check_ops_hash, check_ops in queue:
@@ -355,20 +354,20 @@ def find_matches(args, debug=True):
                     score, dynamic_threshold, result_debug = 1.0, 0.95, None
                 else:
                     score, dynamic_threshold, result_debug = compare(
-                        ref_ops, check_ops, args["threshold"], debug=debug
+                        ref_ops, check_ops, kwargs["threshold"], debug=debug
                     )
                 if score and dynamic_threshold and score >= dynamic_threshold:
                     results.append(
                         Result(ref_ops_hash, check_ops_hash, score, result_debug)
                     )
-    elif "ref_ops_by_op_hash" in args and "check_ops_by_op_hash" in args:
-        for ref_ops_hash, ref_ops in args["ref_ops_by_op_hash"].items():
-            for check_ops_hash, check_ops in args["check_ops_by_op_hash"].items():
+    elif "ref_ops_by_op_hash" in kwargs and "check_ops_by_op_hash" in kwargs:
+        for ref_ops_hash, ref_ops in kwargs["ref_ops_by_op_hash"].items():
+            for check_ops_hash, check_ops in kwargs["check_ops_by_op_hash"].items():
                 if ref_ops_hash == check_ops_hash:
                     score, dynamic_threshold, result_debug = 1.0, 0.95, None
                 else:
                     score, dynamic_threshold, result_debug = compare(
-                        ref_ops, check_ops, args["threshold"], debug=debug
+                        ref_ops, check_ops, kwargs["threshold"], debug=debug
                     )
                 if score and dynamic_threshold and score >= dynamic_threshold:
                     results.append(
