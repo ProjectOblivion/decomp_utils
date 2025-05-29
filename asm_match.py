@@ -70,7 +70,7 @@ def main():
 
     if args.force_symbols:
         if elf_files := Path(f"build/{args.version}").glob("*.elf"):
-            decomp_utils.force_symbols(args.version, elf_files)
+            decomp_utils.force_symbols(elf_files, args.version)
         decomp_utils.shell(f"git clean -fdx asm/{args.version}/")
         ref_configs = (
             path

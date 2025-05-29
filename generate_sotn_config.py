@@ -1006,7 +1006,7 @@ def main(args):
         if ovl_config.platform == "psp":
             spinner.message = f"parsing the psp stage init for symbols"
             stage_init, export_table_symbol, entity_table_symbol = (
-                decomp_utils.parse_psp_stage_init(
+                parse_psp_stage_init(
                     ovl_config.asm_path.joinpath(ovl_config.nonmatchings_path)
                 )
             )
