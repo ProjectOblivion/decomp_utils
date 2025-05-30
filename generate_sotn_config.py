@@ -6,6 +6,7 @@ import re
 import shutil
 import decomp_utils
 import hashlib
+from decomp_utils import RE_TEMPLATES, RE_PATTERNS
 from concurrent.futures import ProcessPoolExecutor
 from collections import Counter, deque, defaultdict
 from pathlib import Path
@@ -211,23 +212,18 @@ def find_segments(ovl_config):
 
     segments = []
 
-    # Todo: Combine include patterns and move these to a more global space
-    include_asm_pattern = re.compile(r'INCLUDE_ASM\("([A-Za-z0-9/_]+)",\s?(\w+)\);')
-    include_rodata_pattern = re.compile(r'INCLUDE_RODATA\("[A-Za-z0-9/_]+",\s?(\w+)\);')
-    rodata_pattern = re.compile(
-        rf"glabel (?:jtbl|D)_{ovl_config.version}_[0-9A-F]{{8}}\n\s+/\*\s([0-9A-F]{{1,5}})\s"
-    )
+    rodata_pattern = re.compile(RE_TEMPLATES.rodata_offset.substitute(version=ovl_config.version))
     known_starts = {x.start: x for x in known_files}
     src_text = ovl_config.first_src_file.read_text()
 
     segment_meta = None
     functions = deque()
-    for match in include_asm_pattern.finditer(src_text):
+    for match in RE_PATTERNS.include_asm.finditer(src_text):
         asm_dir, current_function = match.groups()
         if current_function in known_starts:
             if segment_meta:
                 if len(functions) == 1:
-                    segment_meta.name = f'{ovl_config.segment_prefix}{re.sub(r"([A-Za-z])([A-Z][a-z])", r"\1_\2", functions[0]).lower().replace("entity", "e")}'
+                    segment_meta.name = f'{ovl_config.segment_prefix}{RE_PATTERNS.camel_case.sub(r"\1_\2", functions[0]).lower().replace("entity", "e")}'
                 segment_meta.end = functions[-1]
                 logger.debug(
                     f"Found text segment for {segment_meta.name} at 0x{segment_meta.offset.str}"
@@ -259,9 +255,7 @@ def find_segments(ovl_config):
                     Path("asm") / ovl_config.version / asm_dir / f"{current_function}.s"
                 )
                 asm_text = asm_path.read_text()
-                if first_offset := re.search(
-                    rf"glabel {current_function}\s+/\*\s([0-9A-F]{{1,5}})\s", asm_text
-                ):
+                if first_offset := re.search(RE_TEMPLATES.asm_symbol_offset.substitute(symbol_name=current_function), asm_text):
                     segment_meta.offset = SimpleNamespace(str=first_offset.group(1))
                     segment_meta.offset.int = int(segment_meta.offset.str, 16)
         if not segment_meta.name and segment_meta.offset:
@@ -282,7 +276,7 @@ def find_segments(ovl_config):
     if segment_meta and segment_meta not in segments:
         # Todo: Handle this without duplicating the code from the loop, if possible
         if len(functions) == 1:
-            segment_meta.name = f'{ovl_config.segment_prefix}{re.sub(r"([A-Za-z])([A-Z][a-z])", r"\1_\2", functions[0]).lower().replace("entity", "e")}'
+            segment_meta.name = f'{ovl_config.segment_prefix}{RE_PATTERNS.camel_case.sub(r"\1_\2", functions[0]).lower().replace("entity", "e")}'
         logger.debug(
             f"Found text segment for {segment_meta.name} at 0x{segment_meta.offset.str}"
         )
@@ -324,7 +318,7 @@ def find_segments(ovl_config):
         )
 
         # Extract rodata symbols from INCLUDE_RODATA macros
-        for rodata_symbol in include_rodata_pattern.findall(segment_text):
+        for rodata_symbol in RE_PATTERNS.include_rodata.findall(segment_text):
             rodata_offset = decomp_utils.get_symbol_offset(ovl_config, rodata_symbol)
             rodata_subsegments.append(
                 SimpleNamespace(offset=rodata_offset, type=".rodata", name=segment.name)
@@ -338,7 +332,7 @@ def find_segments(ovl_config):
                 ovl_config.first_src_file.stem,
                 match.group(2),
             ).with_suffix(".s")
-            for match in include_asm_pattern.finditer(segment_text)
+            for match in RE_PATTERNS.include_asm.finditer(segment_text)
         ]
 
         for asm_file in asm_files:
@@ -418,7 +412,7 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
         check_paths = tuple(x.path for x in check_funcs_by_op_hash[check_op_hash])
         if ref_paths and check_paths:
             ref_names = tuple(
-                re.sub(r"^[A-Z0-9]{3,4}_(\w+)", rf"{ovl_name.upper()}_\1", func.stem)
+                RE_PATTERNS.symbol_ovl_name_prefix.sub(ovl_name.upper(), func.stem)
                 for func in ref_paths
             )
             check_names = tuple(func.stem for func in check_paths)
@@ -630,22 +624,7 @@ def parse_psp_stage_init(asm_path):
             and " C708023C " in file_text
             and " 30BC43AC " in file_text
         ):
-            match = re.search(
-                r"""
-            \s+/\*\s[A-F0-9]{1,5}(?:\s[A-F0-9]{8}){2}\s\*/\s+lui\s+\$v1,\s+%hi\((?P<entity>[A-Za-z0-9_]+)\)\n
-            .*\n
-            \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\sC708023C\s\*/.*\n
-            \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s30BC43AC\s\*/.*\n
-            (?:.*\n)+
-            \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s1D09043C\s\*/.*\n
-            \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s38F78424\s\*/.*\n
-            \s+/\*\s[A-F0-9]{1,5}(?:\s[A-F0-9]{8}){2}\s\*/\s+lui\s+\$a1,\s+%hi\((?P<export>[A-Za-z0-9_]+)\)\n
-            (?:.*\n){2}
-            \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\sE127240E\s\*/.*\n
-            """,
-                file_text,
-                re.VERBOSE,
-            )
+            match = RE_PATTERNS.psp_entity_export_table_pattern.search(file_text)
             if match:
                 return file.stem, match.group("export"), match.group("entity")
         # I'm pretty sure all of these are found in the same file, but keeping this here just in case
@@ -655,31 +634,12 @@ def parse_psp_stage_init(asm_path):
                 and " 38F78424 " in file_text
                 and " E127240E " in file_text
             ):
-                match = re.search(
-                    r"""
-                    \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s1D09043C\s\*/.*\n
-                    \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s38F78424\s\*/.*\n
-                    \s+/\*\s[A-F0-9]{1,5}(?:\s[A-F0-9]{8}){2}\s\*/\s+lui\s+\$a1,\s+%hi\((?P<export>[A-Za-z0-9_]+)\)\n
-                    (?:.*\n){2}
-                    \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\sE127240E\s\*/.*\n
-                    """,
-                    file_text,
-                    re.VERBOSE,
-                )
+                match = RE_PATTERNS.psp_export_table_pattern.search(file_text)
                 if match:
                     stage_init_file = file.stem
                     export_table_symbol = match.group("export")
             if " C708023C " in file_text and " 30BC43AC " in file_text:
-                match = re.search(
-                    r"""
-                    \s+/\*\s[A-F0-9]{1,5}(?:\s[A-F0-9]{8}){2}\s\*/\s+lui\s+\$v1,\s+%hi\((?P<entity>[A-Za-z0-9_]+)\)\n
-                    .*\n
-                    \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\sC708023C\s\*/.*\n
-                    \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s30BC43AC\s\*/.*\n
-                    """,
-                    file_text,
-                    re.VERBOSE,
-                )
+                match = RE_PATTERNS.psp_entity_table_pattern.search(file_text)
                 if match:
                     entity_table_symbol = match.group("entity")
             if stage_init_file and export_table_symbol and entity_table_symbol:
@@ -703,28 +663,22 @@ def parse_psx_header(ovl_name, data_file_text):
         f"{ovl_name.upper()}_rooms_layers",
         f"{ovl_name.upper()}_gfxBanks",
         "UpdateStageEntities",
-        #        "unk2C",
-        #        "unk30",
-        #        "unk34",
-        #        "unk38",
-        #        "StageEndCutScene",
     ]
 
     header_start = data_file_text.find("glabel ")
     header_end = data_file_text.find(".size ")
     header = data_file_text[header_start:header_end]
-    matches = re.findall(
-        r"/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s([0-9A-F]{8})\s\*/\s+\.word\s+\w+", header
-    )
+    matches = RE_PATTERNS.psx_header_line_pattern.findall(header)
     if matches:
+        # Todo: Capture symbols beyond UpdateStageEntities and append to symbols
         if len(matches) > 7:
             pStObjLayoutHorizontal_address = int.from_bytes(
-                bytes.fromhex(matches[7]), "little"
+                bytes.fromhex(matches[7][0]), "little"
             )
         else:
             pStObjLayoutHorizontal_address = None
         symbols = tuple(
-            decomp_utils.Symbol(name, int.from_bytes(bytes.fromhex(address), "little"))
+            decomp_utils.Symbol(name, int.from_bytes(bytes.fromhex(address[0]), "little"))
             for name, address in zip(psx_header, matches)
         )
         return pStObjLayoutHorizontal_address, symbols
@@ -733,9 +687,6 @@ def parse_psx_header(ovl_name, data_file_text):
 
 
 def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
-    symbol_pattern = re.compile(
-        r"\s+/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s[0-9A-F]{8}\s\*/\s+[a-z]{1,5}[ \t]*\$\w+,\s%hi\(D_(?:\w+_)?(?P<address>[A-F0-9]{8})\)\s*"
-    )
     init_room_entities_map = {
         f"{ovl_name.upper()}_pStObjLayoutHorizontal": 14 if platform == "psp" else 9,
         f"{ovl_name.upper()}_pStObjLayoutVertical": 22 if platform == "psp" else 12,
@@ -755,7 +706,7 @@ def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
     lines = init_room_entities_path.read_text().splitlines()
     symbols = tuple(
         decomp_utils.Symbol(
-            name, int(symbol_pattern.fullmatch(lines[i]).group("address"), 16)
+            name, int(RE_PATTERNS.init_room_entities_symbol_pattern.fullmatch(lines[i]).group("address"), 16)
         )
         for name, i in init_room_entities_map.items()
         if "(D_" in lines[i]
@@ -836,12 +787,7 @@ def parse_export_table(ovl_type, export_table_symbol, data_file_text):
     export_table_start = data_file_text.find(f"glabel {export_table_symbol}")
     export_table_end = data_file_text.find(f".size {export_table_symbol}")
     if export_table_start != -1:
-        matches = re.finditer(
-            r"/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s(?P<address>[0-9A-F]{8})\s\*/\s+\.word\s+func_\w+",
-            data_file_text[export_table_start:export_table_end],
-        )
-
-    if matches:
+        matches = RE_PATTERNS.symbol_table_line.finditer(data_file_text[export_table_start:export_table_end])
         return tuple(
             decomp_utils.Symbol(
                 name, int.from_bytes(bytes.fromhex(match.group("address")), "little")
@@ -888,10 +834,7 @@ def parse_entity_table(ovl_name, entity_table_symbol, data_file_text):
             else:
                 entity_table_address = None
 
-        matches = re.findall(
-            r"/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s([0-9A-F]{8})\s\*/\s+\.word\s+func_\w+",
-            parsed_entity_table,
-        )
+        matches = RE_PATTERNS.symbol_table_line.findall(parsed_entity_table)
 
     if matches:
         # Do not rename to EntityDummy if the two addresses don't match
@@ -1121,9 +1064,7 @@ def main(args):
                 if ovl_config.platform == "psp"
                 else "us" in file.name or "hd" in file.name
             )
-            ref_pattern = re.compile(
-                rf"splat\.\w+\.(?P<prefix>st|bo)?(?P<ref_ovl>\w+)\.yaml"
-            )
+
             # Todo: Evaluate whether limiting to stage and non-stage overlays as references makes a practical difference in execution time
             if (
                 ref_version
@@ -1132,7 +1073,7 @@ def main(args):
                 and "mad" not in file.name
                 and ovl_config.name not in file.name
                 and file.match("splat.*.yaml")
-                and (match := ref_pattern.match(file.name))
+                and (match := RE_PATTERNS.ref_pattern.match(file.name))
             ):
                 ref_basenames.append(
                     f'{match.group("prefix") or ""}{match.group("ref_ovl")}'
@@ -1269,10 +1210,6 @@ def main(args):
 
         if ref_files_by_name:
             spinner.message = f"cross referencing {len(ref_files_by_name)} functions"
-            name_pattern = re.compile(r"lui\s+.+?%hi\(((?:[A-Z]|g_|func_)\w+)\)")
-            address_pattern = re.compile(
-                r"lui\s+.+?%hi\((?:D_|func_)(?:\w+_)?([A-F0-9]{8})\)"
-            )
 
             # Todo: Clean up this logic
             new_syms = set()
@@ -1284,9 +1221,8 @@ def main(args):
                         parsed_check_file.instructions.parsed,
                     ):
                         # Todo: Warn if a symbol is not default and does not match the cross referenced symbol
-                        name, address = name_pattern.match(
-                            ref_instruction
-                        ), address_pattern.match(check_instruction)
+                        name = RE_PATTERNS.cross_ref_name_pattern.match(ref_instruction)
+                        address = RE_PATTERNS.cross_ref_address_pattern.match(check_instruction)
                         if (
                             name
                             and not name.group(1).startswith("D_")
@@ -1297,11 +1233,7 @@ def main(args):
                         ):
                             new_syms.add(
                                 decomp_utils.Symbol(
-                                    re.sub(
-                                        r"^[A-Z0-9]{3,4}_(\w+)",
-                                        rf"{ovl_config.name.upper()}_\1",
-                                        name.group(1),
-                                    ),
+                                    RE_PATTERNS.symbol_ovl_name_prefix.sub(ovl_config.name.upper(), name.group(1)),
                                     int(address.group(1), 16),
                                 )
                             )
@@ -1358,22 +1290,11 @@ def main(args):
         output = decomp_utils.build(
             [f"{ovl_config.ld_script_path}"], version=ovl_config.version
         ).decode()
-        splat_suggestions = re.finditer(
-            r"""
-            The\srodata\ssegment\s'(?P<segment>\w+)'\shas\sjumptables.+\n
-            File\ssplit\ssuggestions.+\n
-            (?P<suggestions>(?:\s+-\s+\[0x[0-9A-Fa-f]+,\s.+?\]\n)+)
-            \n
-            """,
-            output,
-            re.VERBOSE,
-        )
+        splat_suggestions = RE_PATTERNS.splat_suggestions_full.finditer(output)
 
         suggested_segments = []
         for match in splat_suggestions:
-            suggestions = re.findall(
-                r"\s+-\s+\[(0x[0-9A-Fa-f]+),\s(.+?)\]", match.group("suggestions")
-            )
+            suggestions = RE_PATTERNS.splat_suggestion.findall(match.group("suggestions"))
             suggested_segments.extend(
                 [offset, segment_type, match.group("segment")]
                 for offset, segment_type in suggestions

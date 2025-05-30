@@ -6,6 +6,7 @@ from pathlib import Path
 from collections import defaultdict, deque
 from hashlib import sha1
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from .helpers import RE_PATTERNS
 import Levenshtein
 
 __all__ = [
@@ -44,48 +45,6 @@ ResultDebug = namedtuple(
         "dynamic_threshold",
         "mismatches",
     ],
-)
-
-PATTERNS = SimpleNamespace(
-    op=re.compile(
-        rb"""
-        /\*\s(?:[0-9A-F]{1,5})
-        \s(?:[0-9A-F]{8})
-        \s(?:[0-9A-F]{8})
-        \s\*/\s+([a-z]{1,5})
-        [ \t]*(?:[^\n]*)\n
-        """,
-        re.VERBOSE,
-    ),
-    asm_line=re.compile(
-        rb"""
-        /\*\s(?P<offset>[0-9A-F]{1,5})
-        \s(?P<address>[0-9A-F]{8})
-        \s(?P<word>[0-9A-F]{8})
-        \s\*/\s+(?P<op>[a-z]{1,5})
-        [ \t]*(?P<fields>[^\n]*)\n
-        """,
-        re.VERBOSE,
-    ),
-    jtbl=re.compile(
-        rb"""
-        glabel\s(?P<name>jtbl\w+[0-9A-F]{8})\n
-        (?P<table>.+?)\n
-        \.size\s(?P=name),\s\.\s\-\s(?P=name)\n
-        """,
-        re.DOTALL | re.VERBOSE,
-    ),
-    jtbl_line=re.compile(
-        rb"""
-        /\*\s(?P<offset>[0-9A-F]{1,5})
-        \s(?P<address>[0-9A-F]{8})
-        \s(?P<data>[0-9A-F]{8})
-        \s\*/\s+(?P<data_type>\.[a-z]{1,5})
-        \s+(?P<location>\.[0-9A-Za-z_]{9,})
-        """,
-        re.VERBOSE,
-    ),
-    masking=re.compile(r"(?:\s\.?\w+$|\(\w+\))"),
 )
 
 
@@ -191,7 +150,7 @@ def parse_file(path, parse_instructions=True, parse_jtbls=False):
         # Todo: add in ending index if rodata start > text start
         text_slice = file_bytes[text_section_start:]
         if not parse_instructions and (
-            ops := tuple(op.decode("utf-8") for op in PATTERNS.op.findall(text_slice))
+            ops := tuple(op.decode("utf-8") for op in RE_PATTERNS.op.findall(text_slice))
         ):
             # Todo: See if using hash() is faster
             parsed_ops = ParsedOps(path, sha1("".join(ops).encode()).hexdigest(), ops)
@@ -204,7 +163,7 @@ def parse_file(path, parse_instructions=True, parse_jtbls=False):
                     line_match.group("op").decode("utf-8"),
                     line_match.group("fields").decode("utf-8"),
                 )
-                for line_match in PATTERNS.asm_line.finditer(text_slice)
+                for line_match in RE_PATTERNS.asm_line.finditer(text_slice)
             )
             if asm_lines:
                 ops = tuple(asm_line.op for asm_line in asm_lines)
@@ -215,7 +174,7 @@ def parse_file(path, parse_instructions=True, parse_jtbls=False):
                 else:
                     parsed_ops = None
                 normalized_instructions = tuple(
-                    f'{asm_line.op} {PATTERNS.masking.sub("", asm_line.fields)}'
+                    f'{asm_line.op} {RE_PATTERNS.masking.sub("", asm_line.fields)}'
                     for asm_line in asm_lines
                 )
                 words = tuple(asm_line.word for asm_line in asm_lines)
@@ -246,10 +205,10 @@ def parse_file(path, parse_instructions=True, parse_jtbls=False):
                         line_match.group("data_type").decode("utf-8"),
                         line_match.group("location").decode("utf-8"),
                     )
-                    for line_match in PATTERNS.jtbl_line.finditer(match.group("table"))
+                    for line_match in RE_PATTERNS.jtbl_line.finditer(match.group("table"))
                 ),
             )
-            for match in PATTERNS.jtbl.finditer(rodata_slice)
+            for match in RE_PATTERNS.jtbl.finditer(rodata_slice)
         )
 
     return ParsedAsmFile(path, file_hash, parsed_ops, parsed_instructions, parsed_jtbls)
