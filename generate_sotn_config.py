@@ -33,6 +33,7 @@ Additonal notes:
     For example: A segment with the only function being EntityShuttingWindow would be named as e_shutting_window
 """
 
+# Todo: Why aren't warnings going to console.
 
 def find_segments(ovl_config):
     # Todo: Have this path be configurable
@@ -404,7 +405,7 @@ def get_default(filename):
 #include "stage.h"
 
 #define OVL_EXPORT(x) {ovl_name}_##x
- 
+
 typedef enum EntityIDs {{
     /* 0x00 */ E_NONE,
 }} EntityIDs;
@@ -496,92 +497,22 @@ def parse_psp_stage_init(asm_path):
         return stage_init_file, export_table_symbol, entity_table_symbol
 
 
-def parse_psx_header(ovl_name, data_file_text):
+def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol = None):
     # Account for both Abbreviated and full headers
     # Account for difference in stage headers vs other headers
-    # Todo: Merge parse_export_table with this
-    psx_header = [
-        "Update",
-        "HitDetection",
-        "UpdateRoomPosition",
-        "InitRoomEntities",
-        f"{ovl_name.upper()}_rooms",
-        f"{ovl_name.upper()}_spriteBanks",
-        f"{ovl_name.upper()}_cluts",
-        f"{ovl_name.upper()}_pStObjLayoutHorizontal",
-        f"{ovl_name.upper()}_rooms_layers",
-        f"{ovl_name.upper()}_gfxBanks",
-        "UpdateStageEntities",
-    ]
-
-    header_start = data_file_text.find("glabel ")
-    header_end = data_file_text.find(".size ")
-    header = data_file_text[header_start:header_end]
-    matches = RE_PATTERNS.psx_header_line_pattern.findall(header)
-    if matches:
-        # Todo: Capture symbols beyond UpdateStageEntities and append to symbols
-        if len(matches) > 7:
-            pStObjLayoutHorizontal_address = int.from_bytes(
-                bytes.fromhex(matches[7][0]), "little"
-            )
-        else:
-            pStObjLayoutHorizontal_address = None
-        # Todo: Ensure this is doing a 1 for 1 line replacement, whether func, d_ or null
-        symbols = tuple(
-            decomp_utils.Symbol(name, int.from_bytes(bytes.fromhex(address[0]), "little"))
-            for name, address in zip(psx_header, matches)
-        )
-        return pStObjLayoutHorizontal_address, symbols
-    else:
-        return None
-
-
-def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
-    init_room_entities_map = {
-        f"{ovl_name.upper()}_pStObjLayoutHorizontal": 14 if platform == "psp" else 9,
-        f"{ovl_name.upper()}_pStObjLayoutVertical": 22 if platform == "psp" else 12,
-        "g_LayoutObjHorizontal": 18 if platform == "psp" else 17,
-        "g_LayoutObjVertical": 26 if platform == "psp" else 19,
-        "g_LayoutObjPosHorizontal": (
-            138
-            if platform == "psp" and ovl_name == "rnz0"
-            else 121 if platform == "psp" else 81
-        ),
-        "g_LayoutObjPosVertical": (
-            140
-            if platform == "psp" and ovl_name == "rnz0"
-            else 123 if platform == "psp" else 83
-        ),
-    }
-    lines = init_room_entities_path.read_text().splitlines()
-    symbols = tuple(
-        decomp_utils.Symbol(
-            name, int(RE_PATTERNS.init_room_entities_symbol_pattern.fullmatch(lines[i]).group("address"), 16)
-        )
-        for name, i in init_room_entities_map.items()
-        if "(D_" in lines[i]
-    )
-    create_entity_bss_address = min(
-        x.address for x in symbols if x.name.startswith("g_Layout")
-    )
-
-    return symbols, create_entity_bss_address
-
-
-def parse_export_table(ovl_type, export_table_symbol, data_file_text):
     match ovl_type:
         case "stage":
-            export_table = [
+            ovl_header = [
                 "Update",
                 "HitDetection",
                 "UpdateRoomPosition",
                 "InitRoomEntities",
-                "g_Rooms",
-                "g_SpriteBanks",
-                "g_Cluts",
-                "g_pStObjLayoutHorizontal",
-                "g_TileLayers",
-                "g_EntityGfxs",
+                f"{name.upper()}_rooms",
+                f"{name.upper()}_spriteBanks",
+                f"{name.upper()}_cluts",
+                "g_pStObjLayoutHorizontal" if platform == "psp" else f"{name.upper()}_pStObjLayoutHorizontal",
+                f"{name.upper()}_rooms_layers",
+                f"{name.upper()}_gfxBanks",
                 "UpdateStageEntities",
                 "g_SpriteBank1",
                 "g_SpriteBank2",
@@ -634,18 +565,64 @@ def parse_export_table(ovl_type, export_table_symbol, data_file_text):
         case _:
             return None
 
-    export_table_start = data_file_text.find(f"glabel {export_table_symbol}")
-    export_table_end = data_file_text.find(f".size {export_table_symbol}")
-    if export_table_start != -1:
-        matches = RE_PATTERNS.symbol_table_line.finditer(data_file_text[export_table_start:export_table_end])
-        return tuple(
-            decomp_utils.Symbol(
-                name, int.from_bytes(bytes.fromhex(match.group("address")), "little")
-            )
-            for name, match in zip(export_table, matches)
-        )
+    header_start = data_file_text.find(f"glabel {header_symbol}") if header_symbol else data_file_text.find("glabel ")
+    header_end = data_file_text.find(f".size {header_symbol}") if header_symbol else data_file_text.find(".size ")
+    if header_start != -1:
+        header = data_file_text[header_start:header_end]
     else:
         return None
+    # Todo: Should this be findall or finditer?
+    matches = RE_PATTERNS.ovl_header_line_pattern.findall(header)
+    if matches:
+        # Todo: Capture symbols beyond UpdateStageEntities and append to symbols
+        if len(matches) > 7:
+            pStObjLayoutHorizontal_address = int.from_bytes(
+                bytes.fromhex(matches[7][0]), "little"
+            )
+        else:
+            pStObjLayoutHorizontal_address = None
+        # Todo: Ensure this is doing a 1 for 1 line replacement, whether func, d_ or null
+        # Todo: Make the address parsing more straight forward, instead of capturing both address and name
+        symbols = tuple(
+            decomp_utils.Symbol(name, int.from_bytes(bytes.fromhex(address[0]), "little"))
+            # Todo: Does this need the filtering, or should it just overwrite the existing regardless?
+            for name, address in zip(ovl_header, matches) if address[1].startswith("func_") or address[1].startswith("D_") or address[1].startswith("g_")
+        )
+        return pStObjLayoutHorizontal_address, symbols
+    else:
+        return None
+
+
+def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
+    init_room_entities_map = {
+        f"{ovl_name.upper()}_pStObjLayoutHorizontal": 14 if platform == "psp" else 9,
+        f"{ovl_name.upper()}_pStObjLayoutVertical": 22 if platform == "psp" else 12,
+        "g_LayoutObjHorizontal": 18 if platform == "psp" else 17,
+        "g_LayoutObjVertical": 26 if platform == "psp" else 19,
+        "g_LayoutObjPosHorizontal": (
+            138
+            if platform == "psp" and ovl_name == "rnz0"
+            else 121 if platform == "psp" else 81
+        ),
+        "g_LayoutObjPosVertical": (
+            140
+            if platform == "psp" and ovl_name == "rnz0"
+            else 123 if platform == "psp" else 83
+        ),
+    }
+    lines = init_room_entities_path.read_text().splitlines()
+    symbols = tuple(
+        decomp_utils.Symbol(
+            name, int(RE_PATTERNS.init_room_entities_symbol_pattern.fullmatch(lines[i]).group("address"), 16)
+        )
+        for name, i in init_room_entities_map.items()
+        if "(D_" in lines[i]
+    )
+    create_entity_bss_address = min(
+        x.address for x in symbols if x.name.startswith("g_Layout")
+    )
+
+    return symbols, create_entity_bss_address
 
 
 def parse_entity_table(ovl_name, entity_table_symbol, data_file_text):
@@ -738,7 +715,7 @@ def main(args):
     logger.info("Starting...")
     with decomp_utils.Spinner(message="generating config"):
         ovl_config = decomp_utils.SotnOverlayConfig(args.overlay, args.version)
-
+    # Todo: Cause the spinner to fail of this condition is met
     if ovl_config.config_path.exists() and not args.force:
         logger.error(
             f"A configuration for {ovl_config.name} already exists.  Use the -f/--force option to remove all existing overlay artifacts and recreate the configuration."
@@ -830,12 +807,13 @@ def main(args):
         )
         if ovl_config.platform == "psx" and first_data_text:
             spinner.message = f"parsing the psx header for symbols"
-            pStObjLayoutHorizontal_address, header_symbols = parse_psx_header(
-                ovl_config.name, first_data_text
+            pStObjLayoutHorizontal_address, header_symbols = parse_ovl_header(
+                first_data_text, ovl_config.name, ovl_config.platform, ovl_config.ovl_type
             )
 
         if ovl_config.platform == "psp":
             spinner.message = f"parsing the psp stage init for symbols"
+            # Todo: Rename export_table_symbol to header_symbol
             stage_init, export_table_symbol, entity_table_symbol = parse_psp_stage_init(
                 ovl_config.asm_path.joinpath(ovl_config.nonmatchings_path)
             )
@@ -872,8 +850,8 @@ def main(args):
 
         if export_table_symbol:
             spinner.message = f"parsing the export table for symbols"
-            export_table_symbols = parse_export_table(
-                ovl_config.ovl_type, export_table_symbol, first_data_text
+            pStObjLayoutHorizontal_address, export_table_symbols = parse_ovl_header(
+                first_data_text, ovl_config.name, ovl_config.platform, ovl_config.ovl_type, export_table_symbol
             )
 
         if header_symbols or entity_table_symbols or export_table_symbols:
