@@ -34,186 +34,33 @@ Additonal notes:
 """
 
 
-# Todo: Move all regex patterns to a common function
-# Todo: Review all str.find() instances for slicing vs start and end as parameters
-# Todo: Move to find -> parse function naming and structure
 def find_segments(ovl_config):
-    # Todo: Move this data structure to a more dynamic implementation
-    known_files = [
-        SimpleNamespace(
-            name="e_red_door",
-            start="EntityIsNearPlayer",
-            end=f"{ovl_config.name.upper}_EntityRedDoor",
-        ),
-        SimpleNamespace(
-            name="st_update",
-            start="Random",
-            end="UpdateStageEntities",
-        ),
-        SimpleNamespace(
-            name="st_collision",
-            start="HitDetection",
-            end="EntityDamageDisplay",
-        ),
-        SimpleNamespace(
-            name="create_entity",
-            start="CreateEntityFromLayout",
-            end="CreateEntityFromEntity",
-        ),
-        SimpleNamespace(
-            name="st_init",
-            start="GetLangAt",
-            end="func_psp_09254120",
-        ),
-        SimpleNamespace(
-            name="st_common",
-            start="DestroyEntity",
-            end="ReplaceBreakableWithItemDrop",
-        ),
-        SimpleNamespace(
-            name="blit_char",
-            start="func_psp_0923C2F8" if ovl_config.version == "pspeu" else "BlitChar",
-            end="BlitChar",
-        ),
-        SimpleNamespace(
-            name="e_misc",
-            start="CheckColliderOffsets",
-            end="PlaySfxPositional",
-        ),
-        SimpleNamespace(
-            name="e_misc_2",
-            start="EntityHeartDrop",
-            end="EntityMessageBox",
-        ),
-        SimpleNamespace(
-            name="e_stage_name",
-            start=(
-                "func_psp_0923C0C0"
-                if ovl_config.version == "pspeu"
-                else "StageNamePopupHelper"
-            ),
-            end="EntityStageNamePopup",
-        ),
-        SimpleNamespace(
-            name="e_particles",
-            start=(
-                "func_psp_0923AD68"
-                if ovl_config.version == "pspeu"
-                else "EntitySoulStealOrb"
-            ),
-            end="EntityEnemyBlood",
-        ),
-        SimpleNamespace(
-            name="e_collect",
-            start="PrizeDropFall",
-            end="EntityRelicOrb",
-        ),
-        SimpleNamespace(
-            name="e_room_fg",
-            start="EntityRoomForeground",
-            end="EntityRoomForeground",
-        ),
-        SimpleNamespace(
-            name="e_popup",
-            start="BottomCornerText",
-            end="BottomCornerText",
-        ),
-        SimpleNamespace(
-            name="prim_helpers",
-            start="UnkPrimHelper",
-            end="PrimDecreaseBrightness",
-        ),
-        SimpleNamespace(
-            name="e_axe_knight",
-            start="AxeKnightUnkFunc1",
-            end="EntityAxeKnightThrowingAxe",
-        ),
-        SimpleNamespace(
-            name="e_skeleton",
-            start="SkeletonAttackCheck",
-            end="UnusedSkeletonEntity",
-        ),
-        SimpleNamespace(
-            name="e_fire_warg",
-            start="func_801CC5A4",
-            end="EntityFireWargDeathBeams",
-        ),
-        SimpleNamespace(
-            name="e_warg",
-            start="func_801CF438",
-            end="EntityWargExplosionPuffTransparent",
-        ),
-        SimpleNamespace(
-            name="st_debug",
-            start=f"{ovl_config.name.upper()}_EntityBackgroundBlock",
-            end=f"{ovl_config.name.upper()}_EntityLockCamera",
-        ),
-        SimpleNamespace(
-            name="e_venus_weed",
-            start="SetupPrimsForEntitySpriteParts",
-            end="EntityVenusWeedSpike",
-        ),
-        SimpleNamespace(
-            name="water_effects",
-            start="func_801C4144",
-            end="EntityWaterDrop",
-        ),
-        SimpleNamespace(
-            name="e_breakable",
-            start="EntityUnkBreakable",
-            end="EntityUnkBreakable",
-        ),
-        SimpleNamespace(
-            name="e_jewel_sword_puzzle",
-            start="EntityMermanRockLeftSide",
-            end="EntityFallingRock2",
-        ),
-        SimpleNamespace(
-            name="e_castle_door",
-            start="EntityCastleDoor",
-            end="EntityCastleDoor",
-        ),
-        SimpleNamespace(
-            name="e_background_bushes_trees",
-            start="EntityBackgroundBushes",
-            end="EntityBackgroundTrees",
-        ),
-        SimpleNamespace(
-            name="e_sky_entities",
-            start="EntityLightningThunder",
-            end="EntityLightningCloud",
-        ),
-        SimpleNamespace(
-            name="e_trapdoor",
-            start="EntityTrapDoor",
-            end="EntityTrapDoor",
-        ),
-        SimpleNamespace(
-            name="entrance_weights",
-            start="UpdateWeightChains",
-            end="EntityPathBlockTallWeight",
-        ),
-        SimpleNamespace(
-            name="e_heartroom",
-            start="EntityHeartRoomSwitch",
-            end="EntityHeartRoomGoldDoor",
-        ),
-        SimpleNamespace(
-            name="e_cavern_door",
-            start="DoorCascadePhysics",
-            end="EntityCavernDoor",
-        ),
-        SimpleNamespace(
-            name="e_stairway",
-            start="EntityStairwayPiece",
-            end="EntityFallingRock",
-        ),
-    ]
+    # Todo: Have this path be configurable
+    with Path("tools/decomp_utils/segments.yaml").open() as segments_file:
+        segments_config = decomp_utils.yaml.safe_load(segments_file)
 
+    known_segments = []
+    for name, boundaries in segments_config.items():
+        if isinstance(boundaries["start"], str):
+            start = boundaries["start"]
+        elif ovl_config.version in boundaries["start"]:
+            start = boundaries["start"][ovl_config.version]
+
+        if "end" not in boundaries:
+            end = start
+        elif isinstance(boundaries["end"], str):
+            end = boundaries["end"]
+        elif ovl_config.version in boundaries["end"]:
+            end = boundaries["end"][ovl_config.version]
+
+        known_segments.append(SimpleNamespace(name=name.replace("${prefix}", ovl_config.name.upper()), start=start.replace("${prefix}", ovl_config.name.upper()), end=end.replace("${prefix}", ovl_config.name.upper())))
+
+    # Todo: Add dynamic segment detection
+    
     segments = []
 
     rodata_pattern = re.compile(RE_TEMPLATES.rodata_offset.substitute(version=ovl_config.version))
-    known_starts = {x.start: x for x in known_files}
+    known_starts = {x.start: x for x in known_segments}
     src_text = ovl_config.first_src_file.read_text()
 
     segment_meta = None
@@ -276,6 +123,7 @@ def find_segments(ovl_config):
     if segment_meta and segment_meta not in segments:
         # Todo: Handle this without duplicating the code from the loop, if possible
         if len(functions) == 1:
+            # Todo: Only change name if it isn't a defined segment
             segment_meta.name = f'{ovl_config.segment_prefix}{RE_PATTERNS.camel_case.sub(r"\1_\2", functions[0]).lower().replace("entity", "e")}'
         logger.debug(
             f"Found text segment for {segment_meta.name} at 0x{segment_meta.offset.str}"
@@ -651,6 +499,7 @@ def parse_psp_stage_init(asm_path):
 def parse_psx_header(ovl_name, data_file_text):
     # Account for both Abbreviated and full headers
     # Account for difference in stage headers vs other headers
+    # Todo: Merge parse_export_table with this
     psx_header = [
         "Update",
         "HitDetection",
@@ -677,6 +526,7 @@ def parse_psx_header(ovl_name, data_file_text):
             )
         else:
             pStObjLayoutHorizontal_address = None
+        # Todo: Ensure this is doing a 1 for 1 line replacement, whether func, d_ or null
         symbols = tuple(
             decomp_utils.Symbol(name, int.from_bytes(bytes.fromhex(address[0]), "little"))
             for name, address in zip(psx_header, matches)
@@ -864,6 +714,8 @@ def ovl_sort(name):
     basename = name.replace("f_", "")
     if basename == "main":
         group = 0
+    elif basename in game and basename != "mar":
+        group = 1
     elif basename in stage:
         group = 2
     elif basename in r_stage:
@@ -872,9 +724,6 @@ def ovl_sort(name):
         group = 4
     elif basename in boss and basename.startswith("r"):
         group = 5
-    # Slightly out of order so that mar gets grabbed by boss instead of game
-    elif basename in game:
-        group = 1
     elif name in servant:
         group = 6
     elif "weapon" in name or "w0_" in name or "w1_" in name:
