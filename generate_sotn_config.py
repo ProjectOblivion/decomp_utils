@@ -33,35 +33,56 @@ Additonal notes:
     For example: A segment with the only function being EntityShuttingWindow would be named as e_shutting_window
 """
 
-# Todo: Why aren't warnings going to console.
+# Todo: Allow matches to default functions, but only if there isn't a named match
+# Todo: Why aren't warnings and errors going to console?
 
-def find_segments(ovl_config):
-    # Todo: Have this path be configurable
-    with Path("tools/decomp_utils/segments.yaml").open() as segments_file:
-        segments_config = decomp_utils.yaml.safe_load(segments_file)
+def get_known_starts(ovl_name, version, segments_path = Path("tools/decomp_utils/segments.yaml")):
+    segments_config = decomp_utils.yaml.safe_load(segments_path.read_text())
 
     known_segments = []
     for name, boundaries in segments_config.items():
         if isinstance(boundaries["start"], str):
             start = boundaries["start"]
-        elif ovl_config.version in boundaries["start"]:
-            start = boundaries["start"][ovl_config.version]
+        elif ovl_name in boundaries["start"]:
+            start = boundaries["start"][ovl_name]
+        elif version in boundaries["start"] and isinstance(boundaries["start"][version], str):
+            start = boundaries["start"][version]
+        elif version in boundaries["start"] and ovl_name in boundaries["start"][version]:
+            start = boundaries["start"][version][ovl_name]
+        elif version in boundaries["start"] and "default" in boundaries["start"][version]:
+            start = boundaries["start"][version]["default"]
+        elif "default" in boundaries["start"]:
+            start = boundaries["start"]["default"]
+        else:
+            continue
 
         if "end" not in boundaries:
             end = start
         elif isinstance(boundaries["end"], str):
             end = boundaries["end"]
-        elif ovl_config.version in boundaries["end"]:
-            end = boundaries["end"][ovl_config.version]
+        elif ovl_name in boundaries["end"]:
+            end = boundaries["end"][ovl_name]
+        elif version in boundaries["end"]:
+            end = boundaries["end"][version]
+        elif version in boundaries["end"] and isinstance(boundaries["end"][version], str):
+            end = boundaries["end"][version]
+        elif version in boundaries["end"] and ovl_name in boundaries["end"][version]:
+            end = boundaries["end"][version][ovl_name]
+        elif version in boundaries["end"] and "default" in boundaries["end"][version]:
+            end = boundaries["end"][version]["default"]
+        elif "default" in boundaries["end"]:
+            end = boundaries["end"]["default"]
+        else:
+            continue
 
-        known_segments.append(SimpleNamespace(name=name.replace("${prefix}", ovl_config.name.upper()), start=start.replace("${prefix}", ovl_config.name.upper()), end=end.replace("${prefix}", ovl_config.name.upper())))
+        known_segments.append(SimpleNamespace(name=name.replace("${prefix}", ovl_name.upper()), start=start.replace("${prefix}", ovl_name.upper()), end=end.replace("${prefix}", ovl_name.upper())))
+    return {x.start: x for x in known_segments}
 
+def find_segments(ovl_config):
     # Todo: Add dynamic segment detection
-    
     segments = []
-
     rodata_pattern = re.compile(RE_TEMPLATES.rodata_offset.substitute(version=ovl_config.version))
-    known_starts = {x.start: x for x in known_segments}
+    known_starts = get_known_starts(ovl_config.name, ovl_config.version)
     src_text = ovl_config.first_src_file.read_text()
 
     segment_meta = None
@@ -251,6 +272,7 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
         }
         for bucket in buckets
     )
+    # Todo: Move this to a distinct concurrency file
     with ProcessPoolExecutor() as executor:
         results = executor.map(decomp_utils.find_matches, kwargs)
 
@@ -1202,6 +1224,7 @@ if __name__ == "__main__":
     # Todo: Add option to use mipsmatch instead of native matching
     # Todo: Add option to generate us and pspeu versions at the same time
     # Todo: Add option for specifying log file
+    # Todo: Move this to a distinct concurrency file
     multiprocessing.log_to_stderr()
     multiprocessing.set_start_method("spawn")
     global args

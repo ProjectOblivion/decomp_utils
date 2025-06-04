@@ -11,8 +11,9 @@ create_entity:
   start: CreateEntityFromLayout
   end: CreateEntityFromEntity
 st_init:
-  #start: InitEntityIds # Use this start for pspeu RWRP
-  start: GetLangAt
+  start:
+    rwrp: InitEntityIds
+    default: GetLangAt
   end: ${prefix}_Load
 st_common:
   start: DestroyEntity
@@ -23,8 +24,11 @@ blit_char:
     pspeu: func_psp_0923C2F8
   end: BlitChar
 e_misc:
-  #start: EntityUnkId13 # Use this start for pspeu DAI and RWRP
-  start: CheckColliderOffsets
+  start:
+    pspeu:
+      dai: EntityUnkId13
+      rwrp: EntityUnkId13
+    default: CheckColliderOffsets
   end: PlaySfxPositional
 e_misc_2:
   start: EntityHeartDrop
@@ -108,22 +112,25 @@ e_skelerang:
 e_magically_sealed_door:
   start: 
     us: MagicallySealedDoorIsNearPlayer
-    #pspeu: func_pspeu_09245408 # Use this start for DAI
-    pspeu: GetLang
+    pspeu:
+      dai: func_pspeu_09245408
+      default: GetLang
   end: EntityMagicallySealedDoor
 e_mist_door:
   start:
     us: EntityMistDoor
-    #pspeu: func_pspeu_09246968 # Use this start for DAI
-    pspeu: GetLang
+    pspeu:
+      dai: func_pspeu_09246968
+      default: GetLang
   end: EntityMistDoor
 e_clouds:
   start: EntityClouds
 e_cutscene:
   start:
     us: CutsceneUnk1
-    #pspeu: func_pspeu_09253A70 # Use this start for DAI
-    pspeu: GetLang
+    pspeu:
+      dai: func_pspeu_09253A70
+      default: GetLang
   end: ${prefix}_EntityCutscene
 e_warp_room:
   start: EntityWarpRoom
