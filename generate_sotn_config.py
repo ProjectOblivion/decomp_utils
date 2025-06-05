@@ -40,6 +40,7 @@ def get_known_starts(ovl_name, version, segments_path = Path("tools/decomp_utils
     segments_config = decomp_utils.yaml.safe_load(segments_path.read_text())
 
     known_segments = []
+    # Todo: Simplify this logic
     for name, boundaries in segments_config.items():
         if isinstance(boundaries["start"], str):
             start = boundaries["start"]
@@ -241,7 +242,7 @@ def find_segments(ovl_config):
 
     ovl_config.first_src_file.unlink()
 
-    # Todo: Add these segments as comments.  bss segments can't be split until their files are fully imported.
+    # Todo: Add ability to postprocess selective segments into comments.  bss segments can't be split until their files are fully imported.
     """first_bss_index = next(i for i,subseg in enumerate(ovl_config.subsegments) if "bss" in subseg or "sbss" in subseg)
     bss_subsegs = [ovl_config.subsegments[first_bss_index]] if ovl_config.subsegments[first_bss_index][0] != create_entity_bss_start else []
     bss_subsegs.extend([yaml.FlowSegment([create_entity_bss_start, ".bss" if ovl_config.platform == "psp" else ".sbss", f"{ovl_config.name}_psp/create_entity" if ovl_config.version == "pspeu" else "create_entity"]), yaml.FlowSegment([create_entity_bss_end, "bss"])])
@@ -413,7 +414,7 @@ def rename_symbols(ovl_config, matches):
 
 
 def parse_psp_stage_init(asm_path):
-    stage_init_file, export_table_symbol, entity_table_symbol = None, None, None
+    stage_init_file, header_symbol, entity_table_symbol = None, None, None
 
     for file in (
         dirpath / f
@@ -443,15 +444,15 @@ def parse_psp_stage_init(asm_path):
                 match = RE_PATTERNS.psp_export_table_pattern.search(file_text)
                 if match:
                     stage_init_file = file.stem
-                    export_table_symbol = match.group("export")
+                    header_symbol = match.group("export")
             if " C708023C " in file_text and " 30BC43AC " in file_text:
                 match = RE_PATTERNS.psp_entity_table_pattern.search(file_text)
                 if match:
                     entity_table_symbol = match.group("entity")
-            if stage_init_file and export_table_symbol and entity_table_symbol:
-                return file.stem, export_table_symbol, entity_table_symbol
+            if stage_init_file and header_symbol and entity_table_symbol:
+                return file.stem, header_symbol, entity_table_symbol
     else:
-        return stage_init_file, export_table_symbol, entity_table_symbol
+        return stage_init_file, header_symbol, entity_table_symbol
 
 
 def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol = None):
@@ -521,17 +522,16 @@ def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol = N
             ]
         case _:
             return None
-
     header_start = data_file_text.find(f"glabel {header_symbol}") if header_symbol else data_file_text.find("glabel ")
     header_end = data_file_text.find(f".size {header_symbol}") if header_symbol else data_file_text.find(".size ")
     if header_start != -1:
         header = data_file_text[header_start:header_end]
+        header_address = int(header.splitlines()[0].split("_")[-1], 16)
     else:
         return None
     # Todo: Should this be findall or finditer?
-    matches = RE_PATTERNS.ovl_header_line_pattern.findall(header)
+    matches = RE_PATTERNS.symbol_line_pattern.findall(header)
     if matches:
-        # Todo: Capture symbols beyond UpdateStageEntities and append to symbols
         if len(matches) > 7:
             pStObjLayoutHorizontal_address = int.from_bytes(
                 bytes.fromhex(matches[7][0]), "little"
@@ -545,7 +545,7 @@ def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol = N
             # Todo: Does this need the filtering, or should it just overwrite the existing regardless?
             for name, address in zip(ovl_header, matches) if address[1].startswith("func_") or address[1].startswith("D_") or address[1].startswith("g_")
         )
-        return pStObjLayoutHorizontal_address, symbols
+        return header_address, symbols, pStObjLayoutHorizontal_address
     else:
         return None
 
@@ -582,7 +582,7 @@ def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
     return symbols, create_entity_bss_address
 
 
-def parse_entity_table(ovl_name, entity_table_symbol, data_file_text):
+def parse_entity_table(data_file_text, ovl_name, entity_table_symbol):
     entity_table = [
         "EntityUnkBreakable",
         "EntityExplosion",
@@ -610,25 +610,31 @@ def parse_entity_table(ovl_name, entity_table_symbol, data_file_text):
     entity_table_start = data_file_text.find(f"glabel {entity_table_symbol}")
     entity_table_end = data_file_text.find(f".size {entity_table_symbol}")
     if entity_table_start != -1:
-        parsed_entity_table = data_file_text[entity_table_start:entity_table_end]
-        for line in parsed_entity_table.splitlines():
+        parsed_entity_table = data_file_text[entity_table_start:entity_table_end].splitlines()
+        for i,line in enumerate(parsed_entity_table):
             if " func" in line or " Entity" in line:
                 entity_table_address = int(line.split()[2], 16)
                 break
             else:
                 entity_table_address = None
 
-        matches = RE_PATTERNS.symbol_table_line.findall(parsed_entity_table)
+        parsed_entity_table = "\n".join(parsed_entity_table[i:])
+        matches = RE_PATTERNS.symbol_line_pattern.findall(parsed_entity_table)
 
     if matches:
         # Do not rename to EntityDummy if the two addresses don't match
         if len(matches) > 14 and matches[14] != matches[15]:
-            entity_table[14:15] = [f"EntityUnk{matches[14]}", f"EntityUnk{matches[15]}"]
+            entity_table[14:15] = [f"EntityUnk{matches[14][0]}", f"EntityUnk{matches[15][0]}"]
         symbols = tuple(
-            decomp_utils.Symbol(name, int.from_bytes(bytes.fromhex(address), "little"))
+            decomp_utils.Symbol(name, int.from_bytes(bytes.fromhex(address[0]), "little"))
             for name, address in zip(entity_table, matches)
         )
+
     else:
+        symbols = tuple()
+
+    return entity_table_address, symbols + ()
+
 def create_extra_files(data_file_text, ovl_config):
     ovl_header_path=(
         f"../{ovl_config.name}/{ovl_config.name}.h"
@@ -709,39 +715,40 @@ def ovl_sort(name):
 
     return (group, basename, name.startswith("f_"))
 
+def clean_artifacts(ovl_config):
+    ovl_config.config_path.unlink(missing_ok=True)
+    ovl_config.ovl_symbol_addrs_path.unlink(missing_ok=True)
+    if ovl_config.symexport_path:
+        ovl_config.symexport_path.unlink(missing_ok=True)
+    if ovl_config.asm_path.exists():
+        decomp_utils.shell(f"git clean -fdx {ovl_config.asm_path}")
+    if (path := ovl_config.build_path / ovl_config.src_path_full).exists():
+        shutil.rmtree(path)
+    ovl_config.ld_script_path.unlink(missing_ok=True)
+    ovl_config.ld_script_path.with_suffix(".elf").unlink(missing_ok=True)
+    ovl_config.ld_script_path.with_suffix(".map").unlink(missing_ok=True)
+    ovl_config.config_path.unlink(missing_ok=True)
+    ovl_config.ovl_symbol_addrs_path.unlink(missing_ok=True)
+    ovl_config.build_path.joinpath(f"{ovl_config.target_path.name}").unlink(
+        missing_ok=True
+    )
+    if ovl_config.version != "hd" and ovl_config.src_path_full.exists():
+        shutil.rmtree(ovl_config.src_path_full)
 
 def main(args):
     logger.info("Starting...")
     with decomp_utils.Spinner(message="generating config"):
         ovl_config = decomp_utils.SotnOverlayConfig(args.overlay, args.version)
-    # Todo: Cause the spinner to fail of this condition is met
-    if ovl_config.config_path.exists() and not args.force:
-        logger.error(
-            f"A configuration for {ovl_config.name} already exists.  Use the -f/--force option to remove all existing overlay artifacts and recreate the configuration."
-        )
-        raise SystemExit
-    else:
-        ovl_config.write_config()
-        with decomp_utils.Spinner(message="ensuring no overlay artifacts exist"):
-            # Todo: Create "blank slate" function
-            ovl_config.config_path.unlink(missing_ok=True)
-            ovl_config.ovl_symbol_addrs_path.unlink(missing_ok=True)
-            if ovl_config.symexport_path:
-                ovl_config.symexport_path.unlink(missing_ok=True)
-            if ovl_config.asm_path.exists():
-                decomp_utils.shell(f"git clean -fdx {ovl_config.asm_path}")
-            if (path := ovl_config.build_path / ovl_config.src_path_full).exists():
-                shutil.rmtree(path)
-            ovl_config.ld_script_path.unlink(missing_ok=True)
-            ovl_config.ld_script_path.with_suffix(".elf").unlink(missing_ok=True)
-            ovl_config.ld_script_path.with_suffix(".map").unlink(missing_ok=True)
-            ovl_config.config_path.unlink(missing_ok=True)
-            ovl_config.ovl_symbol_addrs_path.unlink(missing_ok=True)
-            ovl_config.build_path.joinpath(f"{ovl_config.target_path.name}").unlink(
-                missing_ok=True
+        if ovl_config.config_path.exists() and not args.force:
+            logger.error(
+                f"A configuration for {ovl_config.name} already exists.  Use the -f/--force option to remove all existing overlay artifacts and recreate the configuration."
             )
-            if ovl_config.version != "hd" and ovl_config.src_path_full.exists():
-                shutil.rmtree(ovl_config.src_path_full)
+            raise SystemExit
+        else:
+            ovl_config.write_config()
+            with decomp_utils.Spinner(message="ensuring no overlay artifacts exist"):
+                clean_artifacts(ovl_config)
+
 
     with decomp_utils.Spinner(message="creating initial files") as spinner:
         # Todo: Create "extraction init" function
@@ -751,7 +758,11 @@ def main(args):
         header_path = (
             ovl_config.src_path_full.with_name(ovl_config.name) / f"{ovl_config.name}.h"
         )
-        ovl_header_text = get_default("ovl.h").format(ovl_name=ovl_config.name.upper())
+        ovl_header_text = f"""// SPDX-License-Identifier: AGPL-3.0-or-later
+#include "stage.h"
+
+#define OVL_EXPORT(x) {ovl_config.name.upper()}_##x
+"""
         if not header_path.exists():
             header_path.parent.mkdir(parents=True, exist_ok=True)
             header_path.write_text(ovl_header_text)
@@ -787,8 +798,8 @@ def main(args):
 
     with decomp_utils.Spinner(message=f"gathering initial symbols") as spinner:
         # Cleanup and split to functions as needed
-        header_symbols, entity_table_symbols, export_table_symbols = None, None, None
-        entity_table_symbol, entity_table_address, export_table_symbol = (
+        header_symbol, header_address, header_symbols = None, None, None
+        entity_table_symbol, entity_table_address, entity_table_symbols = (
             None,
             None,
             None,
@@ -805,15 +816,15 @@ def main(args):
             first_data_path.read_text() if first_data_path.exists() else None
         )
         if ovl_config.platform == "psx" and first_data_text:
+            # Todo: Merge the psx and pspeu calls to parse_ovl_header()
             spinner.message = f"parsing the psx header for symbols"
-            pStObjLayoutHorizontal_address, header_symbols = parse_ovl_header(
+            header_address, header_symbols, pStObjLayoutHorizontal_address = parse_ovl_header(
                 first_data_text, ovl_config.name, ovl_config.platform, ovl_config.ovl_type
             )
 
         if ovl_config.platform == "psp":
             spinner.message = f"parsing the psp stage init for symbols"
-            # Todo: Rename export_table_symbol to header_symbol
-            stage_init, export_table_symbol, entity_table_symbol = parse_psp_stage_init(
+            stage_init, header_symbol, entity_table_symbol = parse_psp_stage_init(
                 ovl_config.asm_path.joinpath(ovl_config.nonmatchings_path)
             )
             if stage_init and not ovl_config.symexport_path.exists():
@@ -844,22 +855,22 @@ def main(args):
         if entity_table_symbol:
             spinner.message = f"parsing the entity table for symbols"
             entity_table_address, entity_table_symbols = parse_entity_table(
-                ovl_config.name, entity_table_symbol, first_data_text
+                first_data_text, ovl_config.name, entity_table_symbol
             )
 
-        if export_table_symbol:
+        if header_symbol:
             spinner.message = f"parsing the export table for symbols"
-            pStObjLayoutHorizontal_address, export_table_symbols = parse_ovl_header(
-                first_data_text, ovl_config.name, ovl_config.platform, ovl_config.ovl_type, export_table_symbol
+            header_address, header_symbols, pStObjLayoutHorizontal_address = parse_ovl_header(
+                first_data_text, ovl_config.name, ovl_config.platform, ovl_config.ovl_type, header_symbol
             )
 
-        if header_symbols or entity_table_symbols or export_table_symbols:
+        if header_symbols or entity_table_symbols:
             parsed_symbols = tuple(
                 symbol
                 for symbols in (
                     header_symbols,
                     entity_table_symbols,
-                    export_table_symbols,
+                    header_symbols,
                 )
                 if symbols is not None
                 for symbol in symbols
