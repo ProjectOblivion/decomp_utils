@@ -309,8 +309,10 @@ def get_logger(
         file_handler.setLevel(file_level)
         file_handler.setFormatter(SotnDecompLogFormatter())
         logger.addHandler(file_handler)
+
     if stdout and not any(
-        isinstance(h, logging.StreamHandler) for h in logger.handlers
+        isinstance(h, logging.StreamHandler) and getattr(h, 'stream', None) in (sys.stdout, sys.stderr)
+        for h in logger.handlers
     ):
         console_handler = logging.StreamHandler()
         console_handler.setLevel(console_level)

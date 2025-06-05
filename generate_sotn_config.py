@@ -34,7 +34,6 @@ Additonal notes:
 """
 
 # Todo: Allow matches to default functions, but only if there isn't a named match
-# Todo: Why aren't warnings and errors going to console?
 
 def get_known_starts(ovl_name, version, segments_path = Path("tools/decomp_utils/segments.yaml")):
     segments_config = decomp_utils.yaml.safe_load(segments_path.read_text())
@@ -396,14 +395,7 @@ def rename_symbols(ovl_config, matches):
                     decomp_utils.Symbol("MagicallySealedDoorIsNearPlayer", offset)
                 )
             elif match.ref.names.no_defaults != match.check.names:
-                # Todo: Convert to proper log entry format
-                logger.warning(
-                    {
-                        "ref_funcs": match.ref.counts.no_defaults,
-                        "check_funcs": match.check.names,
-                        "score": match.score,
-                    }
-                )
+                logger.warning(f"Found naming mismatches {match.ref.counts.no_defaults} for {ovl_config.name} function(s) {match.check.names} with score {match.score}")
 
     if not symbols:
         logger.warning("\nNo new symbols found\n")
