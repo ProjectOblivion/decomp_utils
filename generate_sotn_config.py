@@ -11,6 +11,7 @@ from concurrent.futures import ProcessPoolExecutor
 from collections import Counter, deque, defaultdict
 from pathlib import Path
 from types import SimpleNamespace
+from mako.template import Template
 import multiprocessing
 
 """
@@ -161,13 +162,12 @@ def find_segments(ovl_config):
         and ovl_config.first_src_file.stem not in subseg[2]
     ]
 
-    file_header = get_default("file_header").format(
-        ovl_header_path=(
-            f"../{ovl_config.name}/{ovl_config.name}.h"
-            if ovl_config.platform == "psp"
-            else f"{ovl_config.name}.h"
-        )
+    ovl_header_path=(
+        f"../{ovl_config.name}/{ovl_config.name}.h"
+        if ovl_config.platform == "psp"
+        else f"{ovl_config.name}.h"
     )
+    file_header = f'// SPDX-License-Identifier: AGPL-3.0-or-later\n#include "{ovl_header_path}"\n\n'
     for segment in segments:
         # Todo: Decide if these need to be more flexible about the existence of the leading space
         first_function_index = src_text.find(f" {segment.start});")
@@ -412,63 +412,6 @@ def rename_symbols(ovl_config, matches):
     return len(symbols)
 
 
-def get_default(filename):
-    match filename:
-        case "ovl.h":
-            return """// SPDX-License-Identifier: AGPL-3.0-or-later
-#include "stage.h"
-
-#define OVL_EXPORT(x) {ovl_name}_##x
-
-typedef enum EntityIDs {{
-    /* 0x00 */ E_NONE,
-}} EntityIDs;
-"""
-        case "file_header":
-            return """// SPDX-License-Identifier: AGPL-3.0-or-later
-#include "{ovl_header_path}"
-
-"""
-        case "header.c":
-            return """// SPDX-License-Identifier: AGPL-3.0-or-later
-#include "{ovl_header_path}"
-
-extern RoomHeader OVL_EXPORT(rooms)[];
-extern s16** OVL_EXPORT(spriteBanks)[];
-extern u_long* OVL_EXPORT(cluts)[];
-extern LayoutEntity* OVL_EXPORT(pStObjLayoutHorizontal)[];
-extern RoomDef OVL_EXPORT(rooms_layers)[];
-extern u_long* OVL_EXPORT(gfxBanks)[];
-void UpdateStageEntities();
-
-Overlay OVL_EXPORT(Overlay) = {
-    .Update = Update,
-    .HitDetection = HitDetection,
-    .UpdateRoomPosition = UpdateRoomPosition,
-    .InitRoomEntities = InitRoomEntities,
-    .rooms = OVL_EXPORT(rooms),
-    .spriteBanks = OVL_EXPORT(spriteBanks),
-    .cluts = OVL_EXPORT(cluts),
-    .objLayoutHorizontal = OVL_EXPORT(pStObjLayoutHorizontal),
-    .tileLayers = OVL_EXPORT(rooms_layers),
-    .gfxBanks = OVL_EXPORT(gfxBanks),
-    .UpdateStageEntities = UpdateStageEntities,
-// RBO5,TOP,BO6
-//    .unk2C = ,
-//    .unk30 = ,
-// RBO6,RNO4,RBO1,NZ1,RNZ0,RCEN,BO7,RNZ1,RTOP
-//    .unk34 = ,
-//    .unk38 = ,
-//    .StageEndCutScene = ,
-};
-
-// #include "gen/sprite_banks.h"
-// #include "gen/palette_def.h"
-// #include "gen/layers.h"
-// #include "gen/graphics_banks.h"
-"""
-
-
 def parse_psp_stage_init(asm_path):
     stage_init_file, export_table_symbol, entity_table_symbol = None, None, None
 
@@ -686,9 +629,51 @@ def parse_entity_table(ovl_name, entity_table_symbol, data_file_text):
             for name, address in zip(entity_table, matches)
         )
     else:
-        symbols = None
+def create_extra_files(data_file_text, ovl_config):
+    ovl_header_path=(
+        f"../{ovl_config.name}/{ovl_config.name}.h"
+        if ovl_config.platform == "psp"
+        else f"{ovl_config.name}.h"
+    )
+    entity_table_start = data_file_text.find(f"glabel {ovl_config.name.upper()}_EntityUpdates")
+    entity_table_end = data_file_text.find(f".size {ovl_config.name.upper()}_EntityUpdates")
+    if entity_table_start != -1:
+        parsed_entity_table = data_file_text[entity_table_start:entity_table_end].splitlines()[1:]
+        entity_funcs = [f'{line.split()[-1].replace(f"{ovl_config.name.upper()}_", "OVL_EXPORT(")})' if f"{ovl_config.name.upper()}_" in line else line.split()[-1] for line in parsed_entity_table]
+        e_inits = []
+        for i,func in enumerate(entity_funcs):
+            if func == "EntityDummy":
+                e_inits.append((func, f"E_DUMMY_{i+1:X}"))
+            elif func.startswith("Entity") or func.startswith("OVL_EXPORT(Entity"):
+                e_inits.append((func, RE_PATTERNS.camel_case.sub(r"\1_\2", func.replace("OVL_EXPORT(","").replace(")","")).upper().replace("ENTITY", "E")))
+            else:
+                e_inits.append((func, f"E_UNK_{i+1:X}"))
 
-    return entity_table_address, symbols
+        template = Template(Path("tools/decomp_utils/templates/e_init.c.mako").read_text())
+        output = template.render(
+            ovl_name=ovl_config.name,
+            entity_funcs=entity_funcs,
+        )
+        ovl_config.src_path_full.joinpath("e_init.c").write_text(output)
+
+        template = Template(Path("tools/decomp_utils/templates/ovl.h.mako").read_text())
+        output = template.render(
+            ovl_name=ovl_config.name,
+            e_inits=e_inits,
+        )
+        ovl_config.src_path_full.joinpath(ovl_config.name).with_suffix(".h").write_text(output)
+
+    header_start = data_file_text.find(f"glabel {ovl_config.name.upper()}_Overlay")
+    header_end = data_file_text.find(f".size {ovl_config.name.upper()}_Overlay")
+    if header_start != -1:
+        parsed_header = data_file_text[header_start:header_end].splitlines()[1:]
+        header_syms = [f'{line.split()[-1].replace(f"{ovl_config.name.upper()}_", "OVL_EXPORT(")})' if f"{ovl_config.name.upper()}_" in line else line.split()[-1] for line in parsed_header]
+        template = Template(Path("tools/decomp_utils/templates/header.c.mako").read_text())
+        output = template.render(
+            ovl_header_path=ovl_header_path,
+            header_syms=header_syms,
+        )
+        ovl_config.src_path_full.joinpath("header.c").write_text(output)
 
 
 def ovl_sort(name):
@@ -883,6 +868,12 @@ def main(args):
                 parsed_symbols += (
                     decomp_utils.Symbol(
                         f"{ovl_config.name.upper()}_EntityUpdates", entity_table_address
+                    ),
+                )
+            if header_address:
+                parsed_symbols += (
+                    decomp_utils.Symbol(
+                        f"{ovl_config.name.upper()}_Overlay", header_address
                     ),
                 )
             spinner.message = f"adding {len(parsed_symbols)} parsed symbols and splitting using updated symbols"
@@ -1143,6 +1134,9 @@ def main(args):
         if suggested_segments:
             # Todo: Improve logging formatting
             logger.info(f"Additional segments suggested by splat: {suggested_segments}")
+
+    with decomp_utils.Spinner(message="populating e_inits"):
+        create_extra_files(first_data_path.read_text(), ovl_config)
 
     built_bin = ovl_config.build_path / f"{ovl_config.target_path.name}"
     with decomp_utils.Spinner(message=f"building and validating {built_bin}"):
