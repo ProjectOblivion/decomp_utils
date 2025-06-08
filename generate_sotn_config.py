@@ -45,22 +45,24 @@ def get_known_starts(ovl_name, version, segments_path = Path("tools/decomp_utils
     # Todo: Simplify this logic
     for name, boundaries in segments_config.items():
         if isinstance(boundaries["start"], str):
-            start = boundaries["start"]
+            starts = [boundaries["start"]]
+        elif isinstance(boundaries["start"], list):
+            starts = boundaries["start"]
         elif ovl_name in boundaries["start"]:
-            start = boundaries["start"][ovl_name]
-        elif version in boundaries["start"] and isinstance(boundaries["start"][version], str):
-            start = boundaries["start"][version]
+            starts = [boundaries["start"][ovl_name]] if isinstance(boundaries["start"][ovl_name], str) else boundaries["start"][ovl_name]
+        elif version in boundaries["start"] and isinstance(boundaries["start"][version], (str, list)):
+            starts = [boundaries["start"][version]] if isinstance(boundaries["start"][version], str) else boundaries["start"][version]
         elif version in boundaries["start"] and ovl_name in boundaries["start"][version]:
-            start = boundaries["start"][version][ovl_name]
+            starts = [boundaries["start"][version][ovl_name]] if isinstance(boundaries["start"][version][ovl_name], str) else boundaries["start"][version][ovl_name]
         elif version in boundaries["start"] and "default" in boundaries["start"][version]:
-            start = boundaries["start"][version]["default"]
+            starts = [boundaries["start"][version]["default"]] if isinstance(boundaries["start"][version]["default"], str) else boundaries["start"][version]["default"]
         elif "default" in boundaries["start"]:
-            start = boundaries["start"]["default"]
+            starts = [boundaries["start"]["default"]] if isinstance(boundaries["start"]["default"], str) else boundaries["start"]["default"]
         else:
             continue
 
         if "end" not in boundaries:
-            end = start
+            end = starts[0]
         elif isinstance(boundaries["end"], str):
             end = boundaries["end"]
         elif ovl_name in boundaries["end"]:
@@ -78,7 +80,13 @@ def get_known_starts(ovl_name, version, segments_path = Path("tools/decomp_utils
         else:
             continue
 
-        known_segments.append(SimpleNamespace(name=name.replace("${prefix}", ovl_name.upper()), start=start.replace("${prefix}", ovl_name.upper()), end=end.replace("${prefix}", ovl_name.upper())))
+        known_segments.extend(
+            SimpleNamespace(
+                name=name.replace("${prefix}",ovl_name.upper()),
+                start=start.replace("${prefix}", ovl_name.upper()),
+                end=end.replace("${prefix}", ovl_name.upper()),
+            ) for start in starts
+        )
     return {x.start: x for x in known_segments}
 
 def find_segments(ovl_config):
@@ -90,9 +98,10 @@ def find_segments(ovl_config):
 
     segment_meta = None
     functions = deque()
-    for match in RE_PATTERNS.include_asm.finditer(src_text):
-        asm_dir, current_function = match.groups()
-        if current_function in known_starts:
+    matches = RE_PATTERNS.include_asm.findall(src_text)
+    for i,match in enumerate(matches):
+        asm_dir, current_function = match
+        if (current_function in known_starts and (not segment_meta or not segment_meta.name.endswith(known_starts[current_function].name))) or ((current_function == "GetLang" or current_function.startswith("GetLang_")) and matches[i+1][1] in known_starts):
             if segment_meta:
                 if len(functions) == 1:
                     segment_meta.name = f'{ovl_config.segment_prefix}{RE_PATTERNS.camel_case.sub(r"\1_\2", functions[0]).lower().replace("entity", "e")}'
@@ -104,7 +113,11 @@ def find_segments(ovl_config):
                 functions.clear()
                 segment_meta = None
 
-            segment_meta = known_starts[current_function]
+            if current_function == "GetLang" or current_function.startswith("GetLang_"):
+                segment_meta = known_starts[matches[i+1][1]]
+                segment_meta.start = current_function
+            else:
+                segment_meta = known_starts[current_function]
             segment_meta.offset = None
             if ovl_config.version == "pspeu":
                 segment_meta.name = f"{ovl_config.segment_prefix}{segment_meta.name}"
@@ -346,16 +359,16 @@ def rename_symbols(ovl_config, matches):
     for match in matches:
         for pair in known_pairs:
             if (
-                len(match.ref.names.no_defaults) == 2
+                len(match.ref.names.no_defaults) <= 2
                 and len(match.check.names) <= 2
                 and pair.first in match.ref.names.no_defaults
-                and pair.last in match.ref.names.no_defaults
+                and (pair.last in match.ref.names.no_defaults or len(match.ref.names.no_defaults) == 1)
             ):
                 offset = min(
                     tuple(int(x.split("_")[-1], 16) for x in match.check.names)
                 )
                 symbols[pair.first].append(decomp_utils.Symbol(pair.first, offset))
-                if len(match.check.names) == 2:
+                if len(match.check.names) == 2 and pair.last in match.ref.names.no_defaults:
                     offset = max(
                         tuple(int(x.split("_")[-1], 16) for x in match.check.names)
                     )
@@ -365,38 +378,26 @@ def rename_symbols(ovl_config, matches):
             if len(match.check.names) == 1 and match.check.names[0].startswith(
                 f"func_{ovl_config.version}_"
             ):
+                offset = int(match.check.names[0].split("_")[-1], 16)
+                if match.ref.names.no_defaults:
+                    symbols[match.ref.counts.no_defaults[0][0]].append(
+                        decomp_utils.Symbol(match.ref.counts.no_defaults[0][0], offset)
+                    )
                 if (
                     len(match.ref.counts.no_defaults) > 1
                     and match.ref.counts.no_defaults[0][1]
                     == match.ref.counts.no_defaults[1][1]
                 ):
                     logger.warning(
-                        f"Ambiguous match for {match.ref.counts.no_defaults}"
+                        f"Ambiguous match: {match.check.names[0]} renamed to {match.ref.counts.no_defaults[0][0]}, all matches were {[x[0] for x in match.ref.counts.no_defaults]} with a score of {match.score}"
                     )
-                offset = int(match.check.names[0].split("_")[-1], 16)
-                if match.ref.names.no_defaults:
-                    symbols[match.ref.counts.no_defaults[0][0]].append(
-                        decomp_utils.Symbol(match.ref.counts.no_defaults[0][0], offset)
-                    )
-            # This is only a stopgap until MagicallySealedDoorIsNearPlayer is decompiled for psp
-            elif (
-                ovl_config.version == "pspeu"
-                and len(match.ref.names.no_defaults) == 1
-                and len(match.check.names) == 2
-                and "EntityIsNearPlayer" in match.ref.names.no_defaults
-            ):
-                offset = min(
-                    tuple(int(x.split("_")[-1], 16) for x in match.check.names)
-                )
-                symbols["EntityIsNearPlayer"].append(
-                    decomp_utils.Symbol("EntityIsNearPlayer", offset)
-                )
-                offset = max(
-                    tuple(int(x.split("_")[-1], 16) for x in match.check.names)
-                )
-                symbols["MagicallySealedDoorIsNearPlayer"].append(
-                    decomp_utils.Symbol("MagicallySealedDoorIsNearPlayer", offset)
-                )
+
+            elif match.ref.counts.no_defaults[0][0] == "GetLang":
+                for name in match.check.names:
+                    name = name.replace(f"func_{ovl_config.version}_", "GetLang_")
+                    symbols[name].append(
+                            decomp_utils.Symbol(name, int(name.split("_")[-1], 16))
+                        )
             elif match.ref.names.no_defaults != match.check.names:
                 logger.warning(f"Found unhandled naming condition: Target name {match.ref.counts.no_defaults} for {ovl_config.name} function(s) {match.check.names} with score {match.score}")
 

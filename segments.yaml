@@ -12,8 +12,9 @@ create_entity:
   end: CreateEntityFromEntity
 st_init:
   start:
-    rwrp: InitEntityIds
-    default: GetLangAt
+    default: 
+      - GetLangAt
+      - InitEntityIds
   end: ${prefix}_Load
 st_common:
   start: DestroyEntity
@@ -25,10 +26,10 @@ blit_char:
   end: BlitChar
 e_misc:
   start:
-    pspeu:
-      dai: EntityUnkId13
-      rwrp: EntityUnkId13
-    default: CheckColliderOffsets
+    us: CheckColliderOffsets
+    pspeu: 
+      - CheckColliderOffsets
+      - EntityUnkId13
   end: PlaySfxPositional
 e_misc_2:
   start: EntityHeartDrop
@@ -109,29 +110,21 @@ e_bat:
 e_skelerang:
   start: EntitySkelerang
   end: EntitySkelerangUnknown # The end is EntitySkelerangBoomerang in the .h file
-e_magically_sealed_door:
-  start: 
-    us: MagicallySealedDoorIsNearPlayer
-    pspeu:
-      dai: func_pspeu_09245408
-      default: GetLang
-  end: EntityMagicallySealedDoor
+e_sealed_door:
+  start:  SealedDoorIsNearPlayer
+  end: EntitySealedDoor
 e_mist_door:
-  start:
-    us: EntityMistDoor
-    pspeu:
-      dai: func_pspeu_09246968
-      default: GetLang
+  start: EntityMistDoor
   end: EntityMistDoor
 e_clouds:
   start: EntityClouds
 e_cutscene:
   start:
     us: CutsceneUnk1
-    pspeu:
-      dai: func_pspeu_09253A70
-      default: GetLang
+    pspeu: DrawCutsceneActorName
   end: ${prefix}_EntityCutscene
 e_warp_room:
   start: EntityWarpRoom
   end: EntityWarpSmallRocks
+e_life_up:
+  start: EntityLifeUpSpawn
