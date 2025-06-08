@@ -292,7 +292,7 @@ def get_logger(
     file_level=logging.INFO,
     console_level=logging.WARNING,
     stdout=True,
-    filename="sotn_log.json",
+    filename="tools/decomp_utils/sotn_log.json",
 ):
     """Simple wrapper function to make it easier to set up and use custom formatting"""
     logger = logging.getLogger(__name__.strip("_"))

@@ -35,6 +35,8 @@ Additonal notes:
 """
 
 # Todo: Allow matches to default functions, but only if there isn't a named match
+# Todo: Review accurate naming for offset and address variables
+# Todo: Handle merging psp ovl.h file with existing psx ovl.h file
 
 def get_known_starts(ovl_name, version, segments_path = Path("tools/decomp_utils/segments.yaml")):
     segments_config = decomp_utils.yaml.safe_load(segments_path.read_text())
@@ -326,7 +328,7 @@ def rename_symbols(ovl_config, matches):
         SimpleNamespace(first="func_801CC5A4", last="func_801CF438"),
         SimpleNamespace(first="func_801CC90C", last="func_801CF6D8"),
         SimpleNamespace(
-            first="EntityIsNearPlayer", last="MagicallySealedDoorIsNearPlayer"
+            first="EntityIsNearPlayer", last="SealedDoorIsNearPlayer"
         ),
         SimpleNamespace(
             first="GetAnglePointToEntityShifted", last="GetAnglePointToEntity"
@@ -396,7 +398,7 @@ def rename_symbols(ovl_config, matches):
                     decomp_utils.Symbol("MagicallySealedDoorIsNearPlayer", offset)
                 )
             elif match.ref.names.no_defaults != match.check.names:
-                logger.warning(f"Found naming mismatches {match.ref.counts.no_defaults} for {ovl_config.name} function(s) {match.check.names} with score {match.score}")
+                logger.warning(f"Found unhandled naming condition: Target name {match.ref.counts.no_defaults} for {ovl_config.name} function(s) {match.check.names} with score {match.score}")
 
     if not symbols:
         logger.warning("\nNo new symbols found\n")
@@ -459,7 +461,7 @@ def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol = N
     # Account for both Abbreviated and full headers
     # Account for difference in stage headers vs other headers
     match ovl_type:
-        case "stage":
+        case "stage" | "boss":
             ovl_header = [
                 "Update",
                 "HitDetection",
@@ -474,35 +476,12 @@ def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol = N
                 "UpdateStageEntities",
                 "g_SpriteBank1",
                 "g_SpriteBank2",
-                "unk34",
-                "unk38",
-                "unk3C",
+                #"unk34",
+                #"unk38",
+                #"unk3C",
             ]
-        # Todo: Handle servant export
-        case "servant":
-            # Todo: Better names
-            # This was all commented out originally
-            export_table = [
-                "Init",
-                "Update",
-                "Unk08",
-                "Unk0C",
-                "Unk10",
-                "Unk14",
-                "Unk18",
-                "Unk1C",
-                "Unk20",
-                "Unk24",
-                "Unk28",
-                "Unk2C",
-                "Unk30",
-                "Unk34",
-                "Unk38",
-                "Unk3C",
-            ]
-        # Todo: Handle weapon export
         case "weapon":
-            export_table = [
+            ovl_header = [
                 "EntityWeaponAttack",
                 "func_ptr_80170004",
                 "func_ptr_80170008",
@@ -686,9 +665,7 @@ def ovl_sort(name):
     # Todo: This should ikely be simplified
     game = "dra ric maria "
     stage = "are cat cen chi dai dre lib mad no0 no1 no2 no3 no4 np3 nz0 nz1 sel st0 top wrp "
-    r_stage = (
-        "rare rcat rcen rchi rdai rlib rno0 rno1 rno2 rno3 rno4 rnz0 rnz1 rtop rwrp "
-    )
+    r_stage = "rare rcat rcen rchi rdai rlib rno0 rno1 rno2 rno3 rno4 rnz0 rnz1 rtop rwrp "
     boss = "bo0 bo1 bo2 bo3 bo4 bo5 bo6 bo7 mar rbo0 rbo1 rbo2 rbo3 rbo4 rbo5 rbo6 rbo7 rbo8 "
     servant = "tt_000 tt_001 tt_002 tt_003 tt_004 tt_005 tt_006 "
 
@@ -815,12 +792,6 @@ def main(args):
         first_data_text = (
             first_data_path.read_text() if first_data_path.exists() else None
         )
-        if ovl_config.platform == "psx" and first_data_text:
-            # Todo: Merge the psx and pspeu calls to parse_ovl_header()
-            spinner.message = f"parsing the psx header for symbols"
-            header_address, header_symbols, pStObjLayoutHorizontal_address = parse_ovl_header(
-                first_data_text, ovl_config.name, ovl_config.platform, ovl_config.ovl_type
-            )
 
         if ovl_config.platform == "psp":
             spinner.message = f"parsing the psp stage init for symbols"
@@ -833,8 +804,15 @@ def main(args):
                 symexport_text += f"EXTERN({stage_init});\n"
                 ovl_config.symexport_path.write_text(symexport_text)
                 decomp_utils.shell(f"git add {ovl_config.symexport_path}")
-        else:
-            spinner.message = f"looking for the entity table"
+
+        if first_data_text:
+            spinner.message = f"parsing the overlay header for symbols"
+            header_address, header_symbols, pStObjLayoutHorizontal_address = parse_ovl_header(
+                first_data_text, ovl_config.name, ovl_config.platform, ovl_config.ovl_type, header_symbol
+            )
+
+        if pStObjLayoutHorizontal_address and not entity_table_symbol:
+            spinner.message = f"finding the entity table"
             # Todo: Find a less complicated way to handle this
             end_of_header = first_data_text.find(".size")
             pStObjLayoutHorizontal_index = first_data_text.find(
@@ -856,12 +834,6 @@ def main(args):
             spinner.message = f"parsing the entity table for symbols"
             entity_table_address, entity_table_symbols = parse_entity_table(
                 first_data_text, ovl_config.name, entity_table_symbol
-            )
-
-        if header_symbol:
-            spinner.message = f"parsing the export table for symbols"
-            header_address, header_symbols, pStObjLayoutHorizontal_address = parse_ovl_header(
-                first_data_text, ovl_config.name, ovl_config.platform, ovl_config.ovl_type, header_symbol
             )
 
         if header_symbols or entity_table_symbols:
