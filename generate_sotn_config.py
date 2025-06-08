@@ -652,8 +652,14 @@ def create_extra_files(data_file_text, ovl_config):
     header_start = data_file_text.find(f"glabel {ovl_config.name.upper()}_Overlay")
     header_end = data_file_text.find(f".size {ovl_config.name.upper()}_Overlay")
     if header_start != -1:
-        parsed_header = data_file_text[header_start:header_end].splitlines()[1:]
-        header_syms = [f'{line.split()[-1].replace(f"{ovl_config.name.upper()}_", "OVL_EXPORT(")})' if f"{ovl_config.name.upper()}_" in line else line.split()[-1] for line in parsed_header]
+        header_syms = []
+        for line in data_file_text[header_start:header_end].splitlines()[1:]:
+            if f"{ovl_config.name.upper()}_" in line:
+                header_syms.append(f'{line.split()[-1].replace(f"{ovl_config.name.upper()}_", "OVL_EXPORT(")})')
+            else:
+                name = line.split()[-1]
+                header_syms.append("NULL" if name == "0x00000000" else name)
+
         template = Template(Path("tools/decomp_utils/templates/header.c.mako").read_text())
         output = template.render(
             ovl_header_path=ovl_header_path,

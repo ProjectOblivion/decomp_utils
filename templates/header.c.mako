@@ -13,7 +13,7 @@ if len(header_syms) <= 12:
     overlay_type = "AbbreviatedOverlay"
 # psp will probably be a length of 14 for this condition
 elif len(header_syms) == 13:
-    overlay_type = "PartialOverlay"
+    overlay_type = "u_long*"
 else:
     overlay_type = "Overlay"
 %>
