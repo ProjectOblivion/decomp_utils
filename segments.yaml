@@ -1,0 +1,127 @@
+e_red_door:
+  start: EntityIsNearPlayer
+  end: ${prefix}_EntityRedDoor
+st_update:
+  start: Random
+  end: UpdateStageEntities
+st_collision:
+  start: HitDetection
+  end: EntityDamageDisplay
+create_entity:
+  start: CreateEntityFromLayout
+  end: CreateEntityFromEntity
+st_init:
+  start:
+    - GetLangAt
+    - InitEntityIds
+  end: ${prefix}_Load
+st_common:
+  start: DestroyEntity
+  end: ReplaceBreakableWithItemDrop
+blit_char:
+  start:
+    - BlitChar
+    - func_psp_0923C2F8
+  end: BlitChar
+e_misc:
+  start:
+      - CheckColliderOffsets
+      - EntityUnkId13
+  end: PlaySfxPositional
+e_misc_2:
+  start: EntityHeartDrop
+  end: EntityMessageBox
+e_stage_name:
+  start:
+    - StageNamePopupHelper
+    - func_psp_0923C0C0
+  end: EntityStageNamePopup
+e_particles:
+  start:
+    - EntitySoulStealOrb
+    - func_psp_0923AD68
+  end: EntityEnemyBlood
+e_collect:
+  start: PrizeDropFall
+  end: EntityRelicOrb
+e_room_fg:
+  start: EntityRoomForeground
+popup:
+  start: BottomCornerText
+prim_helpers:
+  start: UnkPrimHelper
+  end: PrimDecreaseBrightness
+e_axe_knight:
+  start: AxeKnightUnkFunc1
+  end: EntityAxeKnightThrowingAxe
+e_skeleton:
+  start: SkeletonAttackCheck
+  end: UnusedSkeletonEntity
+e_fire_warg:
+  start: func_801CC5A4
+  end: EntityFireWargDeathBeams
+e_warg:
+  start: func_801CF438
+  end: EntityWargExplosionPuffTransparent
+st_debug:
+  start: ${prefix}_EntityBackgroundBlock
+  end: ${prefix}_EntityLockCamera
+e_venus_weed:
+  start: SetupPrimsForEntitySpriteParts
+  end: EntityVenusWeedSpike
+water_effects:
+  start: func_801C4144
+  end: EntityWaterDrop
+e_breakable:
+  start: EntityUnkBreakable
+e_jewel_sword_puzzle:
+  start: EntityMermanRockLeftSide
+  end: EntityFallingRock2
+e_castle_door:
+  start: EntityCastleDoor
+e_background_bushes_trees:
+  start: EntityBackgroundBushes
+  end: EntityBackgroundTrees
+e_sky_entities:
+  start: EntityLightningThunder
+  end: EntityLightningCloud
+e_trapdoor:
+  start: EntityTrapDoor
+entrance_weights:
+  start: UpdateWeightChains
+  end: EntityPathBlockTallWeight
+e_heartroom:
+  start: EntityHeartRoomSwitch
+  end: EntityHeartRoomGoldDoor
+e_cavern_door:
+  start: DoorCascadePhysics
+  end: EntityCavernDoor
+e_stairway:
+  start: EntityStairwayPiece
+  end: EntityFallingRock
+servant_common:
+  start: ServantUpdateAnim
+  end: ServantUnk0
+e_bat:
+  start: EntityBat
+e_skelerang:
+  start: EntitySkelerang
+  end: EntitySkelerangUnknown # The end is EntitySkelerangBoomerang in the .h file
+e_sealed_door:
+  start:  SealedDoorIsNearPlayer
+  end: EntitySealedDoor
+e_mist_door:
+  start: EntityMistDoor
+  end: EntityMistDoor
+e_clouds:
+  start: EntityClouds
+e_cutscene:
+  start:
+    - CutsceneUnk1
+    - DrawCutsceneActorName
+  end: ${prefix}_EntityCutscene
+e_warp_room:
+  start: EntityWarpRoom
+  end: EntityWarpSmallRocks
+e_life_up:
+  start: EntityLifeUpSpawn

@@ -6,10 +6,12 @@ import re
 import shutil
 import decomp_utils
 import hashlib
+from decomp_utils import RE_TEMPLATES, RE_PATTERNS
 from concurrent.futures import ProcessPoolExecutor
 from collections import Counter, deque, defaultdict
 from pathlib import Path
 from types import SimpleNamespace
+from mako.template import Template
 import multiprocessing
 
 """
@@ -32,202 +34,79 @@ Additonal notes:
     For example: A segment with the only function being EntityShuttingWindow would be named as e_shutting_window
 """
 
+# Todo: Allow matches to default functions, but only if there isn't a named match
+# Todo: Review accuracy of naming for offset and address variables
+# Todo: Handle merging psp ovl.h file with existing psx ovl.h file
+# Todo: Collect warnings and display in summary upon completion
+# Todo: Add symbols closer to where the address is gathered
+# Todo: Add einit common symbols
+# Todo: Add EInits to e_init.c
+# Todo: Extract and import BackgroundBlockInit data
+# Todo: Extract and import RedDoorTiles data
+# Todo: Add g_eRedDoorUV data to e_red_door
+# Todo: Add // clang-format off if INCLUDE_ASM line longer than 80 characters
 
-# Todo: Move all regex patterns to a common function
-# Todo: Review all str.find() instances for slicing vs start and end as parameters
-# Todo: Move to find -> parse function naming and structure
+
+def get_known_starts(
+    ovl_name, version, segments_path=Path("tools/decomp_utils/segments.yaml")
+):
+    segments_config = decomp_utils.yaml.safe_load(segments_path.read_text())
+
+    known_segments = []
+    # Todo: Simplify this logic
+    for name, boundaries in segments_config.items():
+        if isinstance(boundaries["start"], str):
+            starts = [boundaries["start"]]
+        elif isinstance(boundaries["start"], list):
+            starts = boundaries["start"]
+        else:
+            continue
+
+        if "end" not in boundaries:
+            end = starts[0]
+        elif isinstance(boundaries["end"], str):
+            end = boundaries["end"]
+        else:
+            continue
+
+        known_segments.extend(
+            SimpleNamespace(
+                name=name.replace("${prefix}", ovl_name.upper()),
+                start=start.replace("${prefix}", ovl_name.upper()),
+                end=end.replace("${prefix}", ovl_name.upper()),
+            )
+            for start in starts
+        )
+    return {x.start: x for x in known_segments}
+
+
 def find_segments(ovl_config):
-    # Todo: Move this data structure to a more dynamic implementation
-    known_files = [
-        SimpleNamespace(
-            name="e_red_door",
-            start="EntityIsNearPlayer",
-            end=f"{ovl_config.name.upper}_EntityRedDoor",
-        ),
-        SimpleNamespace(
-            name="st_update",
-            start="Random",
-            end="UpdateStageEntities",
-        ),
-        SimpleNamespace(
-            name="st_collision",
-            start="HitDetection",
-            end="EntityDamageDisplay",
-        ),
-        SimpleNamespace(
-            name="create_entity",
-            start="CreateEntityFromLayout",
-            end="CreateEntityFromEntity",
-        ),
-        SimpleNamespace(
-            name="st_init",
-            start="GetLangAt",
-            end="func_psp_09254120",
-        ),
-        SimpleNamespace(
-            name="st_common",
-            start="DestroyEntity",
-            end="ReplaceBreakableWithItemDrop",
-        ),
-        SimpleNamespace(
-            name="blit_char",
-            start="func_psp_0923C2F8" if ovl_config.version == "pspeu" else "BlitChar",
-            end="BlitChar",
-        ),
-        SimpleNamespace(
-            name="e_misc",
-            start="CheckColliderOffsets",
-            end="PlaySfxPositional",
-        ),
-        SimpleNamespace(
-            name="e_misc_2",
-            start="EntityHeartDrop",
-            end="EntityMessageBox",
-        ),
-        SimpleNamespace(
-            name="e_stage_name",
-            start=(
-                "func_psp_0923C0C0"
-                if ovl_config.version == "pspeu"
-                else "StageNamePopupHelper"
-            ),
-            end="EntityStageNamePopup",
-        ),
-        SimpleNamespace(
-            name="e_particles",
-            start=(
-                "func_psp_0923AD68"
-                if ovl_config.version == "pspeu"
-                else "EntitySoulStealOrb"
-            ),
-            end="EntityEnemyBlood",
-        ),
-        SimpleNamespace(
-            name="e_collect",
-            start="PrizeDropFall",
-            end="EntityRelicOrb",
-        ),
-        SimpleNamespace(
-            name="e_room_fg",
-            start="EntityRoomForeground",
-            end="EntityRoomForeground",
-        ),
-        SimpleNamespace(
-            name="e_popup",
-            start="BottomCornerText",
-            end="BottomCornerText",
-        ),
-        SimpleNamespace(
-            name="prim_helpers",
-            start="UnkPrimHelper",
-            end="PrimDecreaseBrightness",
-        ),
-        SimpleNamespace(
-            name="e_axe_knight",
-            start="AxeKnightUnkFunc1",
-            end="EntityAxeKnightThrowingAxe",
-        ),
-        SimpleNamespace(
-            name="e_skeleton",
-            start="SkeletonAttackCheck",
-            end="UnusedSkeletonEntity",
-        ),
-        SimpleNamespace(
-            name="e_fire_warg",
-            start="func_801CC5A4",
-            end="EntityFireWargDeathBeams",
-        ),
-        SimpleNamespace(
-            name="e_warg",
-            start="func_801CF438",
-            end="EntityWargExplosionPuffTransparent",
-        ),
-        SimpleNamespace(
-            name="st_debug",
-            start=f"{ovl_config.name.upper()}_EntityBackgroundBlock",
-            end=f"{ovl_config.name.upper()}_EntityLockCamera",
-        ),
-        SimpleNamespace(
-            name="e_venus_weed",
-            start="SetupPrimsForEntitySpriteParts",
-            end="EntityVenusWeedSpike",
-        ),
-        SimpleNamespace(
-            name="water_effects",
-            start="func_801C4144",
-            end="EntityWaterDrop",
-        ),
-        SimpleNamespace(
-            name="e_breakable",
-            start="EntityUnkBreakable",
-            end="EntityUnkBreakable",
-        ),
-        SimpleNamespace(
-            name="e_jewel_sword_puzzle",
-            start="EntityMermanRockLeftSide",
-            end="EntityFallingRock2",
-        ),
-        SimpleNamespace(
-            name="e_castle_door",
-            start="EntityCastleDoor",
-            end="EntityCastleDoor",
-        ),
-        SimpleNamespace(
-            name="e_background_bushes_trees",
-            start="EntityBackgroundBushes",
-            end="EntityBackgroundTrees",
-        ),
-        SimpleNamespace(
-            name="e_sky_entities",
-            start="EntityLightningThunder",
-            end="EntityLightningCloud",
-        ),
-        SimpleNamespace(
-            name="e_trapdoor",
-            start="EntityTrapDoor",
-            end="EntityTrapDoor",
-        ),
-        SimpleNamespace(
-            name="entrance_weights",
-            start="UpdateWeightChains",
-            end="EntityPathBlockTallWeight",
-        ),
-        SimpleNamespace(
-            name="e_heartroom",
-            start="EntityHeartRoomSwitch",
-            end="EntityHeartRoomGoldDoor",
-        ),
-        SimpleNamespace(
-            name="e_cavern_door",
-            start="DoorCascadePhysics",
-            end="EntityCavernDoor",
-        ),
-        SimpleNamespace(
-            name="e_stairway",
-            start="EntityStairwayPiece",
-            end="EntityFallingRock",
-        ),
-    ]
-
+    # Todo: Add dynamic segment detection
     segments = []
-
-    # Todo: Combine include patterns and move these to a more global space
-    include_asm_pattern = re.compile(r'INCLUDE_ASM\("([A-Za-z0-9/_]+)",\s?(\w+)\);')
-    include_rodata_pattern = re.compile(r'INCLUDE_RODATA\("[A-Za-z0-9/_]+",\s?(\w+)\);')
     rodata_pattern = re.compile(
-        rf"glabel (?:jtbl|D)_{ovl_config.version}_[0-9A-F]{{8}}\n\s+/\*\s([0-9A-F]{{1,5}})\s"
+        RE_TEMPLATES.rodata_offset.substitute(version=ovl_config.version)
     )
-    known_starts = {x.start: x for x in known_files}
+    known_starts = get_known_starts(ovl_config.name, ovl_config.version)
     src_text = ovl_config.first_src_file.read_text()
 
     segment_meta = None
     functions = deque()
-    for match in include_asm_pattern.finditer(src_text):
-        asm_dir, current_function = match.groups()
-        if current_function in known_starts:
+    matches = RE_PATTERNS.include_asm.findall(src_text)
+    for i, match in enumerate(matches):
+        asm_dir, current_function = match
+        if (
+            current_function in known_starts
+            and (
+                not segment_meta
+                or not segment_meta.name.endswith(known_starts[current_function].name)
+            )
+        ) or (
+            (current_function == "GetLang" or current_function.startswith("GetLang_"))
+            and matches[i + 1][1] in known_starts
+        ):
             if segment_meta:
                 if len(functions) == 1:
-                    segment_meta.name = f'{ovl_config.segment_prefix}{re.sub(r"([A-Za-z])([A-Z][a-z])", r"\1_\2", functions[0]).lower().replace("entity", "e")}'
+                    segment_meta.name = f'{ovl_config.segment_prefix}{RE_PATTERNS.camel_case.sub(r"\1_\2", functions[0]).lower().replace("entity", "e")}'
                 segment_meta.end = functions[-1]
                 logger.debug(
                     f"Found text segment for {segment_meta.name} at 0x{segment_meta.offset.str}"
@@ -236,7 +115,11 @@ def find_segments(ovl_config):
                 functions.clear()
                 segment_meta = None
 
-            segment_meta = known_starts[current_function]
+            if current_function == "GetLang" or current_function.startswith("GetLang_"):
+                segment_meta = known_starts[matches[i + 1][1]]
+                segment_meta.start = current_function
+            else:
+                segment_meta = known_starts[current_function]
             segment_meta.offset = None
             if ovl_config.version == "pspeu":
                 segment_meta.name = f"{ovl_config.segment_prefix}{segment_meta.name}"
@@ -260,7 +143,10 @@ def find_segments(ovl_config):
                 )
                 asm_text = asm_path.read_text()
                 if first_offset := re.search(
-                    rf"glabel {current_function}\s+/\*\s([0-9A-F]{{1,5}})\s", asm_text
+                    RE_TEMPLATES.asm_symbol_offset.substitute(
+                        symbol_name=current_function
+                    ),
+                    asm_text,
                 ):
                     segment_meta.offset = SimpleNamespace(str=first_offset.group(1))
                     segment_meta.offset.int = int(segment_meta.offset.str, 16)
@@ -282,7 +168,8 @@ def find_segments(ovl_config):
     if segment_meta and segment_meta not in segments:
         # Todo: Handle this without duplicating the code from the loop, if possible
         if len(functions) == 1:
-            segment_meta.name = f'{ovl_config.segment_prefix}{re.sub(r"([A-Za-z])([A-Z][a-z])", r"\1_\2", functions[0]).lower().replace("entity", "e")}'
+            # Todo: Only change name if it isn't a defined segment
+            segment_meta.name = f'{ovl_config.segment_prefix}{RE_PATTERNS.camel_case.sub(r"\1_\2", functions[0]).lower().replace("entity", "e")}'
         logger.debug(
             f"Found text segment for {segment_meta.name} at 0x{segment_meta.offset.str}"
         )
@@ -298,13 +185,12 @@ def find_segments(ovl_config):
         and ovl_config.first_src_file.stem not in subseg[2]
     ]
 
-    file_header = get_default("file_header").format(
-        ovl_header_path=(
-            f"../{ovl_config.name}/{ovl_config.name}.h"
-            if ovl_config.platform == "psp"
-            else f"{ovl_config.name}.h"
-        )
+    ovl_header_path = (
+        f"../{ovl_config.name}/{ovl_config.name}.h"
+        if ovl_config.platform == "psp"
+        else f"{ovl_config.name}.h"
     )
+    file_header = f'// SPDX-License-Identifier: AGPL-3.0-or-later\n#include "{ovl_header_path}"\n\n'
     for segment in segments:
         # Todo: Decide if these need to be more flexible about the existence of the leading space
         first_function_index = src_text.find(f" {segment.start});")
@@ -324,7 +210,7 @@ def find_segments(ovl_config):
         )
 
         # Extract rodata symbols from INCLUDE_RODATA macros
-        for rodata_symbol in include_rodata_pattern.findall(segment_text):
+        for rodata_symbol in RE_PATTERNS.include_rodata.findall(segment_text):
             rodata_offset = decomp_utils.get_symbol_offset(ovl_config, rodata_symbol)
             rodata_subsegments.append(
                 SimpleNamespace(offset=rodata_offset, type=".rodata", name=segment.name)
@@ -338,7 +224,7 @@ def find_segments(ovl_config):
                 ovl_config.first_src_file.stem,
                 match.group(2),
             ).with_suffix(".s")
-            for match in include_asm_pattern.finditer(segment_text)
+            for match in RE_PATTERNS.include_asm.finditer(segment_text)
         ]
 
         for asm_file in asm_files:
@@ -378,7 +264,7 @@ def find_segments(ovl_config):
 
     ovl_config.first_src_file.unlink()
 
-    # Todo: Add these segments as comments.  bss segments can't be split until their files are fully imported.
+    # Todo: Add ability to postprocess selective segments into comments.  bss segments can't be split until their files are fully imported.
     """first_bss_index = next(i for i,subseg in enumerate(ovl_config.subsegments) if "bss" in subseg or "sbss" in subseg)
     bss_subsegs = [ovl_config.subsegments[first_bss_index]] if ovl_config.subsegments[first_bss_index][0] != create_entity_bss_start else []
     bss_subsegs.extend([yaml.FlowSegment([create_entity_bss_start, ".bss" if ovl_config.platform == "psp" else ".sbss", f"{ovl_config.name}_psp/create_entity" if ovl_config.version == "pspeu" else "create_entity"]), yaml.FlowSegment([create_entity_bss_end, "bss"])])
@@ -408,6 +294,7 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
         }
         for bucket in buckets
     )
+    # Todo: Move this to a distinct concurrency file
     with ProcessPoolExecutor() as executor:
         results = executor.map(decomp_utils.find_matches, kwargs)
 
@@ -418,7 +305,7 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
         check_paths = tuple(x.path for x in check_funcs_by_op_hash[check_op_hash])
         if ref_paths and check_paths:
             ref_names = tuple(
-                re.sub(r"^[A-Z0-9]{3,4}_(\w+)", rf"{ovl_name.upper()}_\1", func.stem)
+                RE_PATTERNS.symbol_ovl_name_prefix.sub(ovl_name.upper(), func.stem)
                 for func in ref_paths
             )
             check_names = tuple(func.stem for func in check_paths)
@@ -460,9 +347,7 @@ def rename_symbols(ovl_config, matches):
     known_pairs = (
         SimpleNamespace(first="func_801CC5A4", last="func_801CF438"),
         SimpleNamespace(first="func_801CC90C", last="func_801CF6D8"),
-        SimpleNamespace(
-            first="EntityIsNearPlayer", last="MagicallySealedDoorIsNearPlayer"
-        ),
+        SimpleNamespace(first="EntityIsNearPlayer", last="SealedDoorIsNearPlayer"),
         SimpleNamespace(
             first="GetAnglePointToEntityShifted", last="GetAnglePointToEntity"
         ),
@@ -479,16 +364,22 @@ def rename_symbols(ovl_config, matches):
     for match in matches:
         for pair in known_pairs:
             if (
-                len(match.ref.names.no_defaults) == 2
+                len(match.ref.names.no_defaults) <= 2
                 and len(match.check.names) <= 2
                 and pair.first in match.ref.names.no_defaults
-                and pair.last in match.ref.names.no_defaults
+                and (
+                    pair.last in match.ref.names.no_defaults
+                    or len(match.ref.names.no_defaults) == 1
+                )
             ):
                 offset = min(
                     tuple(int(x.split("_")[-1], 16) for x in match.check.names)
                 )
                 symbols[pair.first].append(decomp_utils.Symbol(pair.first, offset))
-                if len(match.check.names) == 2:
+                if (
+                    len(match.check.names) == 2
+                    and pair.last in match.ref.names.no_defaults
+                ):
                     offset = max(
                         tuple(int(x.split("_")[-1], 16) for x in match.check.names)
                     )
@@ -498,46 +389,29 @@ def rename_symbols(ovl_config, matches):
             if len(match.check.names) == 1 and match.check.names[0].startswith(
                 f"func_{ovl_config.version}_"
             ):
+                offset = int(match.check.names[0].split("_")[-1], 16)
+                if match.ref.names.no_defaults:
+                    symbols[match.ref.counts.no_defaults[0][0]].append(
+                        decomp_utils.Symbol(match.ref.counts.no_defaults[0][0], offset)
+                    )
                 if (
                     len(match.ref.counts.no_defaults) > 1
                     and match.ref.counts.no_defaults[0][1]
                     == match.ref.counts.no_defaults[1][1]
                 ):
                     logger.warning(
-                        f"Ambiguous match for {match.ref.counts.no_defaults}"
+                        f"Ambiguous match: {match.check.names[0]} renamed to {match.ref.counts.no_defaults[0][0]}, all matches were {[x[0] for x in match.ref.counts.no_defaults]} with a score of {match.score}"
                     )
-                offset = int(match.check.names[0].split("_")[-1], 16)
-                if match.ref.names.no_defaults:
-                    symbols[match.ref.counts.no_defaults[0][0]].append(
-                        decomp_utils.Symbol(match.ref.counts.no_defaults[0][0], offset)
+
+            elif match.ref.counts.no_defaults[0][0] == "GetLang":
+                for name in match.check.names:
+                    name = name.replace(f"func_{ovl_config.version}_", "GetLang_")
+                    symbols[name].append(
+                        decomp_utils.Symbol(name, int(name.split("_")[-1], 16))
                     )
-            # This is only a stopgap until MagicallySealedDoorIsNearPlayer is decompiled for psp
-            elif (
-                ovl_config.version == "pspeu"
-                and len(match.ref.names.no_defaults) == 1
-                and len(match.check.names) == 2
-                and "EntityIsNearPlayer" in match.ref.names.no_defaults
-            ):
-                offset = min(
-                    tuple(int(x.split("_")[-1], 16) for x in match.check.names)
-                )
-                symbols["EntityIsNearPlayer"].append(
-                    decomp_utils.Symbol("EntityIsNearPlayer", offset)
-                )
-                offset = max(
-                    tuple(int(x.split("_")[-1], 16) for x in match.check.names)
-                )
-                symbols["MagicallySealedDoorIsNearPlayer"].append(
-                    decomp_utils.Symbol("MagicallySealedDoorIsNearPlayer", offset)
-                )
             elif match.ref.names.no_defaults != match.check.names:
-                # Todo: Convert to proper log entry format
                 logger.warning(
-                    {
-                        "ref_funcs": match.ref.counts.no_defaults,
-                        "check_funcs": match.check.names,
-                        "score": match.score,
-                    }
+                    f"Found unhandled naming condition: Target name {match.ref.counts.no_defaults} for {ovl_config.name} function(s) {match.check.names} with score {match.score}"
                 )
 
     if not symbols:
@@ -555,66 +429,9 @@ def rename_symbols(ovl_config, matches):
     return len(symbols)
 
 
-def get_default(filename):
-    match filename:
-        case "ovl.h":
-            return """// SPDX-License-Identifier: AGPL-3.0-or-later
-#include "stage.h"
-
-#define OVL_EXPORT(x) {ovl_name}_##x
- 
-typedef enum EntityIDs {{
-    /* 0x00 */ E_NONE,
-}} EntityIDs;
-"""
-        case "file_header":
-            return """// SPDX-License-Identifier: AGPL-3.0-or-later
-#include "{ovl_header_path}"
-
-"""
-        case "header.c":
-            return """// SPDX-License-Identifier: AGPL-3.0-or-later
-#include "{ovl_header_path}"
-
-extern RoomHeader OVL_EXPORT(rooms)[];
-extern s16** OVL_EXPORT(spriteBanks)[];
-extern u_long* OVL_EXPORT(cluts)[];
-extern LayoutEntity* OVL_EXPORT(pStObjLayoutHorizontal)[];
-extern RoomDef OVL_EXPORT(rooms_layers)[];
-extern u_long* OVL_EXPORT(gfxBanks)[];
-void UpdateStageEntities();
-
-Overlay OVL_EXPORT(Overlay) = {
-    .Update = Update,
-    .HitDetection = HitDetection,
-    .UpdateRoomPosition = UpdateRoomPosition,
-    .InitRoomEntities = InitRoomEntities,
-    .rooms = OVL_EXPORT(rooms),
-    .spriteBanks = OVL_EXPORT(spriteBanks),
-    .cluts = OVL_EXPORT(cluts),
-    .objLayoutHorizontal = OVL_EXPORT(pStObjLayoutHorizontal),
-    .tileLayers = OVL_EXPORT(rooms_layers),
-    .gfxBanks = OVL_EXPORT(gfxBanks),
-    .UpdateStageEntities = UpdateStageEntities,
-// RBO5,TOP,BO6
-//    .unk2C = ,
-//    .unk30 = ,
-// RBO6,RNO4,RBO1,NZ1,RNZ0,RCEN,BO7,RNZ1,RTOP
-//    .unk34 = ,
-//    .unk38 = ,
-//    .StageEndCutScene = ,
-};
-
-// #include "gen/sprite_banks.h"
-// #include "gen/palette_def.h"
-// #include "gen/layers.h"
-// #include "gen/graphics_banks.h"
-"""
-
-
 def parse_psp_stage_init(asm_path):
-    stage_init_file, export_table_symbol, entity_table_symbol = None, None, None
-
+    stage_init_name, header_symbol, entity_table_symbol = None, None, None
+    first_address_pattern = re.compile(r"\s+/\*\s+[A-F0-9]{1,5}\s+([A-F0-9]{8})\s")
     for file in (
         dirpath / f
         for dirpath, _, filenames in asm_path.walk()
@@ -630,24 +447,17 @@ def parse_psp_stage_init(asm_path):
             and " C708023C " in file_text
             and " 30BC43AC " in file_text
         ):
-            match = re.search(
-                r"""
-            \s+/\*\s[A-F0-9]{1,5}(?:\s[A-F0-9]{8}){2}\s\*/\s+lui\s+\$v1,\s+%hi\((?P<entity>[A-Za-z0-9_]+)\)\n
-            .*\n
-            \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\sC708023C\s\*/.*\n
-            \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s30BC43AC\s\*/.*\n
-            (?:.*\n)+
-            \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s1D09043C\s\*/.*\n
-            \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s38F78424\s\*/.*\n
-            \s+/\*\s[A-F0-9]{1,5}(?:\s[A-F0-9]{8}){2}\s\*/\s+lui\s+\$a1,\s+%hi\((?P<export>[A-Za-z0-9_]+)\)\n
-            (?:.*\n){2}
-            \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\sE127240E\s\*/.*\n
-            """,
-                file_text,
-                re.VERBOSE,
-            )
+            match = RE_PATTERNS.psp_entity_export_table_pattern.search(file_text)
             if match:
-                return file.stem, match.group("export"), match.group("entity")
+                stage_init_address = first_address_pattern.search(file_text)
+                stage_init_address = (
+                    int(stage_init_address.group(1), 16) if stage_init_address else None
+                )
+                return (
+                    (file.stem, stage_init_address),
+                    match.group("export"),
+                    match.group("entity"),
+                )
         # I'm pretty sure all of these are found in the same file, but keeping this here just in case
         else:
             if (
@@ -655,164 +465,63 @@ def parse_psp_stage_init(asm_path):
                 and " 38F78424 " in file_text
                 and " E127240E " in file_text
             ):
-                match = re.search(
-                    r"""
-                    \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s1D09043C\s\*/.*\n
-                    \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s38F78424\s\*/.*\n
-                    \s+/\*\s[A-F0-9]{1,5}(?:\s[A-F0-9]{8}){2}\s\*/\s+lui\s+\$a1,\s+%hi\((?P<export>[A-Za-z0-9_]+)\)\n
-                    (?:.*\n){2}
-                    \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\sE127240E\s\*/.*\n
-                    """,
-                    file_text,
-                    re.VERBOSE,
-                )
+                match = RE_PATTERNS.psp_export_table_pattern.search(file_text)
                 if match:
-                    stage_init_file = file.stem
-                    export_table_symbol = match.group("export")
+                    stage_init_name = file.stem
+                    stage_init_address = first_address_pattern.search(file_text)
+                    stage_init_address = (
+                        int(stage_init_address.group(1), 16)
+                        if stage_init_address
+                        else None
+                    )
+                    header_symbol = match.group("export")
             if " C708023C " in file_text and " 30BC43AC " in file_text:
-                match = re.search(
-                    r"""
-                    \s+/\*\s[A-F0-9]{1,5}(?:\s[A-F0-9]{8}){2}\s\*/\s+lui\s+\$v1,\s+%hi\((?P<entity>[A-Za-z0-9_]+)\)\n
-                    .*\n
-                    \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\sC708023C\s\*/.*\n
-                    \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s30BC43AC\s\*/.*\n
-                    """,
-                    file_text,
-                    re.VERBOSE,
-                )
+                match = RE_PATTERNS.psp_entity_table_pattern.search(file_text)
                 if match:
                     entity_table_symbol = match.group("entity")
-            if stage_init_file and export_table_symbol and entity_table_symbol:
-                return file.stem, export_table_symbol, entity_table_symbol
+            if stage_init_name and header_symbol and entity_table_symbol:
+                return (
+                    (stage_init_name, stage_init_address),
+                    header_symbol,
+                    entity_table_symbol,
+                )
     else:
-        return stage_init_file, export_table_symbol, entity_table_symbol
+        return (
+            (stage_init_name, stage_init_address) if stage_init_name else None,
+            header_symbol,
+            entity_table_symbol,
+        )
 
 
-def parse_psx_header(ovl_name, data_file_text):
+def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol=None):
     # Account for both Abbreviated and full headers
     # Account for difference in stage headers vs other headers
-    psx_header = [
-        "Update",
-        "HitDetection",
-        "UpdateRoomPosition",
-        "InitRoomEntities",
-        f"{ovl_name.upper()}_rooms",
-        f"{ovl_name.upper()}_spriteBanks",
-        f"{ovl_name.upper()}_cluts",
-        f"{ovl_name.upper()}_pStObjLayoutHorizontal",
-        f"{ovl_name.upper()}_rooms_layers",
-        f"{ovl_name.upper()}_gfxBanks",
-        "UpdateStageEntities",
-        #        "unk2C",
-        #        "unk30",
-        #        "unk34",
-        #        "unk38",
-        #        "StageEndCutScene",
-    ]
-
-    header_start = data_file_text.find("glabel ")
-    header_end = data_file_text.find(".size ")
-    header = data_file_text[header_start:header_end]
-    matches = re.findall(
-        r"/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s([0-9A-F]{8})\s\*/\s+\.word\s+\w+", header
-    )
-    if matches:
-        if len(matches) > 7:
-            pStObjLayoutHorizontal_address = int.from_bytes(
-                bytes.fromhex(matches[7]), "little"
-            )
-        else:
-            pStObjLayoutHorizontal_address = None
-        symbols = tuple(
-            decomp_utils.Symbol(name, int.from_bytes(bytes.fromhex(address), "little"))
-            for name, address in zip(psx_header, matches)
-        )
-        return pStObjLayoutHorizontal_address, symbols
-    else:
-        return None
-
-
-def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
-    symbol_pattern = re.compile(
-        r"\s+/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s[0-9A-F]{8}\s\*/\s+[a-z]{1,5}[ \t]*\$\w+,\s%hi\(D_(?:\w+_)?(?P<address>[A-F0-9]{8})\)\s*"
-    )
-    init_room_entities_map = {
-        f"{ovl_name.upper()}_pStObjLayoutHorizontal": 14 if platform == "psp" else 9,
-        f"{ovl_name.upper()}_pStObjLayoutVertical": 22 if platform == "psp" else 12,
-        "g_LayoutObjHorizontal": 18 if platform == "psp" else 17,
-        "g_LayoutObjVertical": 26 if platform == "psp" else 19,
-        "g_LayoutObjPosHorizontal": (
-            138
-            if platform == "psp" and ovl_name == "rnz0"
-            else 121 if platform == "psp" else 81
-        ),
-        "g_LayoutObjPosVertical": (
-            140
-            if platform == "psp" and ovl_name == "rnz0"
-            else 123 if platform == "psp" else 83
-        ),
-    }
-    lines = init_room_entities_path.read_text().splitlines()
-    symbols = tuple(
-        decomp_utils.Symbol(
-            name, int(symbol_pattern.fullmatch(lines[i]).group("address"), 16)
-        )
-        for name, i in init_room_entities_map.items()
-        if "(D_" in lines[i]
-    )
-    create_entity_bss_address = min(
-        x.address for x in symbols if x.name.startswith("g_Layout")
-    )
-
-    return symbols, create_entity_bss_address
-
-
-def parse_export_table(ovl_type, export_table_symbol, data_file_text):
     match ovl_type:
-        case "stage":
-            export_table = [
+        case "stage" | "boss":
+            ovl_header = [
                 "Update",
                 "HitDetection",
                 "UpdateRoomPosition",
                 "InitRoomEntities",
-                "g_Rooms",
-                "g_SpriteBanks",
-                "g_Cluts",
-                "g_pStObjLayoutHorizontal",
-                "g_TileLayers",
-                "g_EntityGfxs",
+                f"{name.upper()}_rooms",
+                f"{name.upper()}_spriteBanks",
+                f"{name.upper()}_cluts",
+                (
+                    "g_pStObjLayoutHorizontal"
+                    if platform == "psp"
+                    else f"{name.upper()}_pStObjLayoutHorizontal"
+                ),
+                f"{name.upper()}_rooms_layers",
+                f"{name.upper()}_gfxBanks",
                 "UpdateStageEntities",
                 "g_SpriteBank1",
                 "g_SpriteBank2",
-                "unk34",
-                "unk38",
-                "unk3C",
+                # "unk34",
+                # "unk38",
+                # "unk3C",
             ]
-        # Todo: Handle servant export
-        case "servant":
-            # Todo: Better names
-            # This was all commented out originally
-            export_table = [
-                "Init",
-                "Update",
-                "Unk08",
-                "Unk0C",
-                "Unk10",
-                "Unk14",
-                "Unk18",
-                "Unk1C",
-                "Unk20",
-                "Unk24",
-                "Unk28",
-                "Unk2C",
-                "Unk30",
-                "Unk34",
-                "Unk38",
-                "Unk3C",
-            ]
-        # Todo: Handle weapon export
         case "weapon":
-            export_table = [
+            ovl_header = [
                 "EntityWeaponAttack",
                 "func_ptr_80170004",
                 "func_ptr_80170008",
@@ -832,27 +541,86 @@ def parse_export_table(ovl_type, export_table_symbol, data_file_text):
             ]
         case _:
             return None
-
-    export_table_start = data_file_text.find(f"glabel {export_table_symbol}")
-    export_table_end = data_file_text.find(f".size {export_table_symbol}")
-    if export_table_start != -1:
-        matches = re.finditer(
-            r"/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s(?P<address>[0-9A-F]{8})\s\*/\s+\.word\s+func_\w+",
-            data_file_text[export_table_start:export_table_end],
-        )
-
+    header_start = (
+        data_file_text.find(f"glabel {header_symbol}")
+        if header_symbol
+        else data_file_text.find("glabel ")
+    )
+    header_end = (
+        data_file_text.find(f".size {header_symbol}")
+        if header_symbol
+        else data_file_text.find(".size ")
+    )
+    if header_start != -1:
+        header = data_file_text[header_start:header_end]
+        header_address = int(header.splitlines()[0].split("_")[-1], 16)
+    else:
+        return None
+    # Todo: Should this be findall or finditer?
+    matches = RE_PATTERNS.symbol_line_pattern.findall(header)
     if matches:
-        return tuple(
-            decomp_utils.Symbol(
-                name, int.from_bytes(bytes.fromhex(match.group("address")), "little")
+        if len(matches) > 7:
+            pStObjLayoutHorizontal_address = int.from_bytes(
+                bytes.fromhex(matches[7][0]), "little"
             )
-            for name, match in zip(export_table, matches)
+        else:
+            pStObjLayoutHorizontal_address = None
+        # Todo: Ensure this is doing a 1 for 1 line replacement, whether func, d_ or null
+        # Todo: Make the address parsing more straight forward, instead of capturing both address and name
+        symbols = tuple(
+            decomp_utils.Symbol(
+                name, int.from_bytes(bytes.fromhex(address[0]), "little")
+            )
+            # Todo: Does this need the filtering, or should it just overwrite the existing regardless?
+            for name, address in zip(ovl_header, matches)
+            if address[1].startswith("func_")
+            or address[1].startswith("D_")
+            or address[1].startswith("g_")
         )
+        return header_address, symbols, pStObjLayoutHorizontal_address
     else:
         return None
 
 
-def parse_entity_table(ovl_name, entity_table_symbol, data_file_text):
+def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
+    init_room_entities_map = {
+        f"{ovl_name.upper()}_pStObjLayoutHorizontal": 14 if platform == "psp" else 9,
+        f"{ovl_name.upper()}_pStObjLayoutVertical": 22 if platform == "psp" else 12,
+        "g_LayoutObjHorizontal": 18 if platform == "psp" else 17,
+        "g_LayoutObjVertical": 26 if platform == "psp" else 19,
+        "g_LayoutObjPosHorizontal": (
+            138
+            if platform == "psp" and ovl_name == "rnz0"
+            else 121 if platform == "psp" else 81
+        ),
+        "g_LayoutObjPosVertical": (
+            140
+            if platform == "psp" and ovl_name == "rnz0"
+            else 123 if platform == "psp" else 83
+        ),
+    }
+    lines = init_room_entities_path.read_text().splitlines()
+    symbols = tuple(
+        decomp_utils.Symbol(
+            name,
+            int(
+                RE_PATTERNS.init_room_entities_symbol_pattern.fullmatch(lines[i]).group(
+                    "address"
+                ),
+                16,
+            ),
+        )
+        for name, i in init_room_entities_map.items()
+        if "(D_" in lines[i]
+    )
+    create_entity_bss_address = min(
+        x.address for x in symbols if x.name.startswith("g_Layout")
+    )
+
+    return symbols, create_entity_bss_address
+
+
+def parse_entity_table(data_file_text, ovl_name, entity_table_symbol):
     entity_table = [
         "EntityUnkBreakable",
         "EntityExplosion",
@@ -880,31 +648,120 @@ def parse_entity_table(ovl_name, entity_table_symbol, data_file_text):
     entity_table_start = data_file_text.find(f"glabel {entity_table_symbol}")
     entity_table_end = data_file_text.find(f".size {entity_table_symbol}")
     if entity_table_start != -1:
-        parsed_entity_table = data_file_text[entity_table_start:entity_table_end]
-        for line in parsed_entity_table.splitlines():
+        parsed_entity_table = data_file_text[
+            entity_table_start:entity_table_end
+        ].splitlines()
+        for i, line in enumerate(parsed_entity_table):
             if " func" in line or " Entity" in line:
                 entity_table_address = int(line.split()[2], 16)
                 break
             else:
                 entity_table_address = None
 
-        matches = re.findall(
-            r"/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s([0-9A-F]{8})\s\*/\s+\.word\s+func_\w+",
-            parsed_entity_table,
-        )
+        parsed_entity_table = "\n".join(parsed_entity_table[i:])
+        matches = RE_PATTERNS.symbol_line_pattern.findall(parsed_entity_table)
 
     if matches:
         # Do not rename to EntityDummy if the two addresses don't match
         if len(matches) > 14 and matches[14] != matches[15]:
-            entity_table[14:15] = [f"EntityUnk{matches[14]}", f"EntityUnk{matches[15]}"]
+            entity_table[14:15] = [
+                f"EntityUnk{matches[14][0]}",
+                f"EntityUnk{matches[15][0]}",
+            ]
         symbols = tuple(
-            decomp_utils.Symbol(name, int.from_bytes(bytes.fromhex(address), "little"))
+            decomp_utils.Symbol(
+                name, int.from_bytes(bytes.fromhex(address[0]), "little")
+            )
             for name, address in zip(entity_table, matches)
         )
-    else:
-        symbols = None
 
-    return entity_table_address, symbols
+    else:
+        symbols = tuple()
+
+    return entity_table_address, symbols + ()
+
+
+def create_extra_files(data_file_text, ovl_config):
+    ovl_header_path = (
+        f"../{ovl_config.name}/{ovl_config.name}.h"
+        if ovl_config.platform == "psp"
+        else f"{ovl_config.name}.h"
+    )
+    entity_table_start = data_file_text.find(
+        f"glabel {ovl_config.name.upper()}_EntityUpdates"
+    )
+    entity_table_end = data_file_text.find(
+        f".size {ovl_config.name.upper()}_EntityUpdates"
+    )
+    if entity_table_start != -1:
+        parsed_entity_table = data_file_text[
+            entity_table_start:entity_table_end
+        ].splitlines()[1:]
+        entity_funcs = [
+            (
+                f'{line.split()[-1].replace(f"{ovl_config.name.upper()}_", "OVL_EXPORT(")})'
+                if f"{ovl_config.name.upper()}_" in line
+                else line.split()[-1]
+            )
+            for line in parsed_entity_table
+        ]
+        e_inits = []
+        for i, func in enumerate(entity_funcs):
+            if func == "EntityDummy":
+                e_inits.append((func, f"E_DUMMY_{i+1:X}"))
+            elif func.startswith("Entity") or func.startswith("OVL_EXPORT(Entity"):
+                e_inits.append(
+                    (
+                        func,
+                        RE_PATTERNS.camel_case.sub(
+                            r"\1_\2", func.replace("OVL_EXPORT(", "").replace(")", "")
+                        )
+                        .upper()
+                        .replace("ENTITY", "E"),
+                    )
+                )
+            else:
+                e_inits.append((func, f"E_UNK_{i+1:X}"))
+
+        template = Template(
+            Path("tools/decomp_utils/templates/e_init.c.mako").read_text()
+        )
+        output = template.render(
+            ovl_name=ovl_config.name,
+            entity_funcs=entity_funcs,
+        )
+        ovl_config.src_path_full.joinpath("e_init.c").write_text(output)
+
+        template = Template(Path("tools/decomp_utils/templates/ovl.h.mako").read_text())
+        output = template.render(
+            ovl_name=ovl_config.name,
+            e_inits=e_inits,
+        )
+        ovl_config.src_path_full.joinpath(ovl_config.name).with_suffix(".h").write_text(
+            output
+        )
+
+    header_start = data_file_text.find(f"glabel {ovl_config.name.upper()}_Overlay")
+    header_end = data_file_text.find(f".size {ovl_config.name.upper()}_Overlay")
+    if header_start != -1:
+        header_syms = []
+        for line in data_file_text[header_start:header_end].splitlines()[1:]:
+            if f"{ovl_config.name.upper()}_" in line:
+                header_syms.append(
+                    f'{line.split()[-1].replace(f"{ovl_config.name.upper()}_", "OVL_EXPORT(")})'
+                )
+            else:
+                name = line.split()[-1]
+                header_syms.append("NULL" if name == "0x00000000" else name)
+
+        template = Template(
+            Path("tools/decomp_utils/templates/header.c.mako").read_text()
+        )
+        output = template.render(
+            ovl_header_path=ovl_header_path,
+            header_syms=header_syms,
+        )
+        ovl_config.src_path_full.joinpath("header.c").write_text(output)
 
 
 def ovl_sort(name):
@@ -921,6 +778,8 @@ def ovl_sort(name):
     basename = name.replace("f_", "")
     if basename == "main":
         group = 0
+    elif basename in game and basename != "mar":
+        group = 1
     elif basename in stage:
         group = 2
     elif basename in r_stage:
@@ -929,9 +788,6 @@ def ovl_sort(name):
         group = 4
     elif basename in boss and basename.startswith("r"):
         group = 5
-    # Slightly out of order so that mar gets grabbed by boss instead of game
-    elif basename in game:
-        group = 1
     elif name in servant:
         group = 6
     elif "weapon" in name or "w0_" in name or "w1_" in name:
@@ -942,38 +798,40 @@ def ovl_sort(name):
     return (group, basename, name.startswith("f_"))
 
 
+def clean_artifacts(ovl_config):
+    ovl_config.config_path.unlink(missing_ok=True)
+    ovl_config.ovl_symbol_addrs_path.unlink(missing_ok=True)
+    if ovl_config.symexport_path:
+        ovl_config.symexport_path.unlink(missing_ok=True)
+    if ovl_config.asm_path.exists():
+        decomp_utils.shell(f"git clean -fdx {ovl_config.asm_path}")
+    if (path := ovl_config.build_path / ovl_config.src_path_full).exists():
+        shutil.rmtree(path)
+    ovl_config.ld_script_path.unlink(missing_ok=True)
+    ovl_config.ld_script_path.with_suffix(".elf").unlink(missing_ok=True)
+    ovl_config.ld_script_path.with_suffix(".map").unlink(missing_ok=True)
+    ovl_config.config_path.unlink(missing_ok=True)
+    ovl_config.ovl_symbol_addrs_path.unlink(missing_ok=True)
+    ovl_config.build_path.joinpath(f"{ovl_config.target_path.name}").unlink(
+        missing_ok=True
+    )
+    if ovl_config.version != "hd" and ovl_config.src_path_full.exists():
+        shutil.rmtree(ovl_config.src_path_full)
+
+
 def main(args):
     logger.info("Starting...")
     with decomp_utils.Spinner(message="generating config"):
         ovl_config = decomp_utils.SotnOverlayConfig(args.overlay, args.version)
-
-    if ovl_config.config_path.exists() and not args.force:
-        logger.error(
-            f"A configuration for {ovl_config.name} already exists.  Use the -f/--force option to remove all existing overlay artifacts and recreate the configuration."
-        )
-        raise SystemExit
-    else:
-        ovl_config.write_config()
-        with decomp_utils.Spinner(message="ensuring no overlay artifacts exist"):
-            # Todo: Create "blank slate" function
-            ovl_config.config_path.unlink(missing_ok=True)
-            ovl_config.ovl_symbol_addrs_path.unlink(missing_ok=True)
-            if ovl_config.symexport_path:
-                ovl_config.symexport_path.unlink(missing_ok=True)
-            if ovl_config.asm_path.exists():
-                decomp_utils.shell(f"git clean -fdx {ovl_config.asm_path}")
-            if (path := ovl_config.build_path / ovl_config.src_path_full).exists():
-                shutil.rmtree(path)
-            ovl_config.ld_script_path.unlink(missing_ok=True)
-            ovl_config.ld_script_path.with_suffix(".elf").unlink(missing_ok=True)
-            ovl_config.ld_script_path.with_suffix(".map").unlink(missing_ok=True)
-            ovl_config.config_path.unlink(missing_ok=True)
-            ovl_config.ovl_symbol_addrs_path.unlink(missing_ok=True)
-            ovl_config.build_path.joinpath(f"{ovl_config.target_path.name}").unlink(
-                missing_ok=True
+        if ovl_config.config_path.exists() and not args.force:
+            logger.error(
+                f"A configuration for {ovl_config.name} already exists.  Use the -f/--force option to remove all existing overlay artifacts and recreate the configuration."
             )
-            if ovl_config.version != "hd" and ovl_config.src_path_full.exists():
-                shutil.rmtree(ovl_config.src_path_full)
+            raise SystemExit
+        else:
+            ovl_config.write_config()
+            with decomp_utils.Spinner(message="ensuring no overlay artifacts exist"):
+                clean_artifacts(ovl_config)
 
     with decomp_utils.Spinner(message="creating initial files") as spinner:
         # Todo: Create "extraction init" function
@@ -983,7 +841,11 @@ def main(args):
         header_path = (
             ovl_config.src_path_full.with_name(ovl_config.name) / f"{ovl_config.name}.h"
         )
-        ovl_header_text = get_default("ovl.h").format(ovl_name=ovl_config.name.upper())
+        ovl_header_text = f"""// SPDX-License-Identifier: AGPL-3.0-or-later
+#include "stage.h"
+
+#define OVL_EXPORT(x) {ovl_config.name.upper()}_##x
+"""
         if not header_path.exists():
             header_path.parent.mkdir(parents=True, exist_ok=True)
             header_path.write_text(ovl_header_text)
@@ -1019,8 +881,9 @@ def main(args):
 
     with decomp_utils.Spinner(message=f"gathering initial symbols") as spinner:
         # Cleanup and split to functions as needed
-        header_symbols, entity_table_symbols, export_table_symbols = None, None, None
-        entity_table_symbol, entity_table_address, export_table_symbol = (
+        header_symbol, header_address, header_symbols = None, None, None
+        parsed_symbols = ()
+        entity_table_symbol, entity_table_address, entity_table_symbols = (
             None,
             None,
             None,
@@ -1036,25 +899,41 @@ def main(args):
         first_data_text = (
             first_data_path.read_text() if first_data_path.exists() else None
         )
-        if ovl_config.platform == "psx" and first_data_text:
-            spinner.message = f"parsing the psx header for symbols"
-            pStObjLayoutHorizontal_address, header_symbols = parse_psx_header(
-                ovl_config.name, first_data_text
-            )
 
         if ovl_config.platform == "psp":
             spinner.message = f"parsing the psp stage init for symbols"
-            stage_init, export_table_symbol, entity_table_symbol = parse_psp_stage_init(
+            stage_init, header_symbol, entity_table_symbol = parse_psp_stage_init(
                 ovl_config.asm_path.joinpath(ovl_config.nonmatchings_path)
             )
-            if stage_init and not ovl_config.symexport_path.exists():
-                spinner.message = "creating symexport file"
-                symexport_text = f"EXTERN(_binary_assets_{ovl_config.path_prefix}{"_" if ovl_config.ovl_prefix else ""}{ovl_config.name}_mwo_header_bin_start);\n"
-                symexport_text += f"EXTERN({stage_init});\n"
-                ovl_config.symexport_path.write_text(symexport_text)
-                decomp_utils.shell(f"git add {ovl_config.symexport_path}")
-        else:
-            spinner.message = f"looking for the entity table"
+            if stage_init:
+                stage_init_name, stage_init_address = stage_init
+                if stage_init_name and stage_init_address:
+                    parsed_symbols += (
+                        decomp_utils.Symbol(
+                            f"{ovl_config.name.upper()}_Load", stage_init_address
+                        ),
+                    )
+                if not ovl_config.symexport_path.exists():
+                    spinner.message = "creating symexport file"
+                    symexport_text = f"EXTERN(_binary_assets_{ovl_config.path_prefix}{"_" if ovl_config.ovl_prefix else ""}{ovl_config.name}_mwo_header_bin_start);\n"
+                    symexport_text += f"EXTERN({stage_init_name});\n"
+                    ovl_config.symexport_path.write_text(symexport_text)
+                    decomp_utils.shell(f"git add {ovl_config.symexport_path}")
+
+        if first_data_text:
+            spinner.message = f"parsing the overlay header for symbols"
+            header_address, header_symbols, pStObjLayoutHorizontal_address = (
+                parse_ovl_header(
+                    first_data_text,
+                    ovl_config.name,
+                    ovl_config.platform,
+                    ovl_config.ovl_type,
+                    header_symbol,
+                )
+            )
+
+        if pStObjLayoutHorizontal_address and not entity_table_symbol:
+            spinner.message = f"finding the entity table"
             # Todo: Find a less complicated way to handle this
             end_of_header = first_data_text.find(".size")
             pStObjLayoutHorizontal_index = first_data_text.find(
@@ -1075,22 +954,16 @@ def main(args):
         if entity_table_symbol:
             spinner.message = f"parsing the entity table for symbols"
             entity_table_address, entity_table_symbols = parse_entity_table(
-                ovl_config.name, entity_table_symbol, first_data_text
+                first_data_text, ovl_config.name, entity_table_symbol
             )
 
-        if export_table_symbol:
-            spinner.message = f"parsing the export table for symbols"
-            export_table_symbols = parse_export_table(
-                ovl_config.ovl_type, export_table_symbol, first_data_text
-            )
-
-        if header_symbols or entity_table_symbols or export_table_symbols:
-            parsed_symbols = tuple(
+        if header_symbols or entity_table_symbols:
+            parsed_symbols += tuple(
                 symbol
                 for symbols in (
                     header_symbols,
                     entity_table_symbols,
-                    export_table_symbols,
+                    header_symbols,
                 )
                 if symbols is not None
                 for symbol in symbols
@@ -1101,6 +974,14 @@ def main(args):
                         f"{ovl_config.name.upper()}_EntityUpdates", entity_table_address
                     ),
                 )
+            if header_address:
+                parsed_symbols += (
+                    decomp_utils.Symbol(
+                        f"{ovl_config.name.upper()}_Overlay", header_address
+                    ),
+                )
+
+        if parsed_symbols:
             spinner.message = f"adding {len(parsed_symbols)} parsed symbols and splitting using updated symbols"
             decomp_utils.add_symbols(ovl_config, parsed_symbols)
             decomp_utils.shell(
@@ -1121,9 +1002,7 @@ def main(args):
                 if ovl_config.platform == "psp"
                 else "us" in file.name or "hd" in file.name
             )
-            ref_pattern = re.compile(
-                rf"splat\.\w+\.(?P<prefix>st|bo)?(?P<ref_ovl>\w+)\.yaml"
-            )
+
             # Todo: Evaluate whether limiting to stage and non-stage overlays as references makes a practical difference in execution time
             if (
                 ref_version
@@ -1132,7 +1011,7 @@ def main(args):
                 and "mad" not in file.name
                 and ovl_config.name not in file.name
                 and file.match("splat.*.yaml")
-                and (match := ref_pattern.match(file.name))
+                and (match := RE_PATTERNS.ref_pattern.match(file.name))
             ):
                 ref_basenames.append(
                     f'{match.group("prefix") or ""}{match.group("ref_ovl")}'
@@ -1269,10 +1148,6 @@ def main(args):
 
         if ref_files_by_name:
             spinner.message = f"cross referencing {len(ref_files_by_name)} functions"
-            name_pattern = re.compile(r"lui\s+.+?%hi\(((?:[A-Z]|g_|func_)\w+)\)")
-            address_pattern = re.compile(
-                r"lui\s+.+?%hi\((?:D_|func_)(?:\w+_)?([A-F0-9]{8})\)"
-            )
 
             # Todo: Clean up this logic
             new_syms = set()
@@ -1284,9 +1159,10 @@ def main(args):
                         parsed_check_file.instructions.parsed,
                     ):
                         # Todo: Warn if a symbol is not default and does not match the cross referenced symbol
-                        name, address = name_pattern.match(
-                            ref_instruction
-                        ), address_pattern.match(check_instruction)
+                        name = RE_PATTERNS.cross_ref_name_pattern.match(ref_instruction)
+                        address = RE_PATTERNS.cross_ref_address_pattern.match(
+                            check_instruction
+                        )
                         if (
                             name
                             and not name.group(1).startswith("D_")
@@ -1297,10 +1173,8 @@ def main(args):
                         ):
                             new_syms.add(
                                 decomp_utils.Symbol(
-                                    re.sub(
-                                        r"^[A-Z0-9]{3,4}_(\w+)",
-                                        rf"{ovl_config.name.upper()}_\1",
-                                        name.group(1),
+                                    RE_PATTERNS.symbol_ovl_name_prefix.sub(
+                                        ovl_config.name.upper(), name.group(1)
                                     ),
                                     int(address.group(1), 16),
                                 )
@@ -1358,21 +1232,12 @@ def main(args):
         output = decomp_utils.build(
             [f"{ovl_config.ld_script_path}"], version=ovl_config.version
         ).decode()
-        splat_suggestions = re.finditer(
-            r"""
-            The\srodata\ssegment\s'(?P<segment>\w+)'\shas\sjumptables.+\n
-            File\ssplit\ssuggestions.+\n
-            (?P<suggestions>(?:\s+-\s+\[0x[0-9A-Fa-f]+,\s.+?\]\n)+)
-            \n
-            """,
-            output,
-            re.VERBOSE,
-        )
+        splat_suggestions = RE_PATTERNS.splat_suggestions_full.finditer(output)
 
         suggested_segments = []
         for match in splat_suggestions:
-            suggestions = re.findall(
-                r"\s+-\s+\[(0x[0-9A-Fa-f]+),\s(.+?)\]", match.group("suggestions")
+            suggestions = RE_PATTERNS.splat_suggestion.findall(
+                match.group("suggestions")
             )
             suggested_segments.extend(
                 [offset, segment_type, match.group("segment")]
@@ -1380,7 +1245,12 @@ def main(args):
             )
         if suggested_segments:
             # Todo: Improve logging formatting
-            logger.info(f"Additional segments suggested by splat: {suggested_segments}")
+            logger.warning(
+                f"Additional segments suggested by splat: {suggested_segments}"
+            )
+
+    with decomp_utils.Spinner(message="populating e_inits"):
+        create_extra_files(first_data_path.read_text(), ovl_config)
 
     built_bin = ovl_config.build_path / f"{ovl_config.target_path.name}"
     with decomp_utils.Spinner(message=f"building and validating {built_bin}"):
@@ -1454,6 +1324,7 @@ if __name__ == "__main__":
     # Todo: Add option to use mipsmatch instead of native matching
     # Todo: Add option to generate us and pspeu versions at the same time
     # Todo: Add option for specifying log file
+    # Todo: Move this to a distinct concurrency file
     multiprocessing.log_to_stderr()
     multiprocessing.set_start_method("spawn")
     global args
