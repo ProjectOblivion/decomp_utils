@@ -99,7 +99,8 @@ def add_symbols(ovl_config, add_symbols):
     symbols_path = ovl_config.ovl_symbol_addrs_path
     symbols_text = symbols_path.read_text()
     existing_symbols = {
-        symbol.group("address"): symbol.group("name") for symbol in RE_PATTERNS.existing_symbols.finditer(symbols_text)
+        symbol.group("address"): symbol.group("name")
+        for symbol in RE_PATTERNS.existing_symbols.finditer(symbols_text)
     }
     # Any addresses not in the ovl vram address space are global and should not be included in the ovl symbols file
     new_symbols = {
@@ -124,7 +125,11 @@ def add_symbols(ovl_config, add_symbols):
         symbols_path.write_text(f"{"\n".join(new_lines)}\n")
 
         sym_prefix = ovl_config.symbol_name_format.replace("$VRAM", "")
-        pattern = re.compile(RE_TEMPLATES.sym_replace.substitute(sym_prefix=sym_prefix, symbols_list="|".join(new_symbols.keys())))
+        pattern = re.compile(
+            RE_TEMPLATES.sym_replace.substitute(
+                sym_prefix=sym_prefix, symbols_list="|".join(new_symbols.keys())
+            )
+        )
         for src_file in (
             dirpath / f
             for dirpath, _, filenames in ovl_config.src_path_full.walk()
@@ -147,7 +152,10 @@ def add_symbols(ovl_config, add_symbols):
 
 def get_symbol_offset(ovl_config, symbol_name):
     # Todo: Adjust this to be able to handle a config passed as a path
-    match = re.search(RE_TEMPLATES.find_symbol_by_name.substitute(symbol_name=symbol_name), ovl_config.ld_script_path.with_suffix(".map").read_text())
+    match = re.search(
+        RE_TEMPLATES.find_symbol_by_name.substitute(symbol_name=symbol_name),
+        ovl_config.ld_script_path.with_suffix(".map").read_text(),
+    )
     if match:
         return int(match.group(1), 16) - ovl_config.vram + ovl_config.start
     else:

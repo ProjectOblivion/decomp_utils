@@ -98,7 +98,9 @@ def generate_clusters(version, overlays, threshold=0.95, exclude=[], debug=False
     ops_by_op_hash = {k: v[0].ops.parsed for k, v in funcs_by_op_hash.items()}
     buckets = get_buckets((ops_by_op_hash,), tolerance=0.1, num_buckets=25)
 
-    kwargs = ({"ops_by_op_hash": bucket[0], "threshold": threshold} for bucket in buckets)
+    kwargs = (
+        {"ops_by_op_hash": bucket[0], "threshold": threshold} for bucket in buckets
+    )
     with ProcessPoolExecutor() as executor:
         results = executor.map(find_matches, kwargs)
 
@@ -150,7 +152,9 @@ def parse_file(path, parse_instructions=True, parse_jtbls=False):
         # Todo: add in ending index if rodata start > text start
         text_slice = file_bytes[text_section_start:]
         if not parse_instructions and (
-            ops := tuple(op.decode("utf-8") for op in RE_PATTERNS.op.findall(text_slice))
+            ops := tuple(
+                op.decode("utf-8") for op in RE_PATTERNS.op.findall(text_slice)
+            )
         ):
             # Todo: See if using hash() is faster
             parsed_ops = ParsedOps(path, sha1("".join(ops).encode()).hexdigest(), ops)
@@ -205,7 +209,9 @@ def parse_file(path, parse_instructions=True, parse_jtbls=False):
                         line_match.group("data_type").decode("utf-8"),
                         line_match.group("location").decode("utf-8"),
                     )
-                    for line_match in RE_PATTERNS.jtbl_line.finditer(match.group("table"))
+                    for line_match in RE_PATTERNS.jtbl_line.finditer(
+                        match.group("table")
+                    )
                 ),
             )
             for match in RE_PATTERNS.jtbl.finditer(rodata_slice)
@@ -301,6 +307,7 @@ def calculate_score(string_similarity, sequence_similarity):
 
     # Unsure which is these gives more accurate scoring, so using both for now and taking the higher one
     return max(weighted_score, composite_score), weighted_score, composite_score
+
 
 def find_matches(kwargs, debug=True):
     results = []
