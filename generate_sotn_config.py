@@ -48,16 +48,6 @@ def get_known_starts(ovl_name, version, segments_path = Path("tools/decomp_utils
             starts = [boundaries["start"]]
         elif isinstance(boundaries["start"], list):
             starts = boundaries["start"]
-        elif ovl_name in boundaries["start"]:
-            starts = [boundaries["start"][ovl_name]] if isinstance(boundaries["start"][ovl_name], str) else boundaries["start"][ovl_name]
-        elif version in boundaries["start"] and isinstance(boundaries["start"][version], (str, list)):
-            starts = [boundaries["start"][version]] if isinstance(boundaries["start"][version], str) else boundaries["start"][version]
-        elif version in boundaries["start"] and ovl_name in boundaries["start"][version]:
-            starts = [boundaries["start"][version][ovl_name]] if isinstance(boundaries["start"][version][ovl_name], str) else boundaries["start"][version][ovl_name]
-        elif version in boundaries["start"] and "default" in boundaries["start"][version]:
-            starts = [boundaries["start"][version]["default"]] if isinstance(boundaries["start"][version]["default"], str) else boundaries["start"][version]["default"]
-        elif "default" in boundaries["start"]:
-            starts = [boundaries["start"]["default"]] if isinstance(boundaries["start"]["default"], str) else boundaries["start"]["default"]
         else:
             continue
 
@@ -65,18 +55,6 @@ def get_known_starts(ovl_name, version, segments_path = Path("tools/decomp_utils
             end = starts[0]
         elif isinstance(boundaries["end"], str):
             end = boundaries["end"]
-        elif ovl_name in boundaries["end"]:
-            end = boundaries["end"][ovl_name]
-        elif version in boundaries["end"]:
-            end = boundaries["end"][version]
-        elif version in boundaries["end"] and isinstance(boundaries["end"][version], str):
-            end = boundaries["end"][version]
-        elif version in boundaries["end"] and ovl_name in boundaries["end"][version]:
-            end = boundaries["end"][version][ovl_name]
-        elif version in boundaries["end"] and "default" in boundaries["end"][version]:
-            end = boundaries["end"][version]["default"]
-        elif "default" in boundaries["end"]:
-            end = boundaries["end"]["default"]
         else:
             continue
 

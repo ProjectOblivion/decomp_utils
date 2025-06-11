@@ -12,22 +12,19 @@ create_entity:
   end: CreateEntityFromEntity
 st_init:
   start:
-    default: 
-      - GetLangAt
-      - InitEntityIds
+    - GetLangAt
+    - InitEntityIds
   end: ${prefix}_Load
 st_common:
   start: DestroyEntity
   end: ReplaceBreakableWithItemDrop
 blit_char:
   start:
-    us: BlitChar
-    pspeu: func_psp_0923C2F8
+    - BlitChar
+    - func_psp_0923C2F8
   end: BlitChar
 e_misc:
   start:
-    us: CheckColliderOffsets
-    pspeu: 
       - CheckColliderOffsets
       - EntityUnkId13
   end: PlaySfxPositional
@@ -36,13 +33,13 @@ e_misc_2:
   end: EntityMessageBox
 e_stage_name:
   start:
-    us: StageNamePopupHelper
-    pspeu: func_psp_0923C0C0
+    - StageNamePopupHelper
+    - func_psp_0923C0C0
   end: EntityStageNamePopup
 e_particles:
   start:
-    us: EntitySoulStealOrb
-    pspeu: func_psp_0923AD68
+    - EntitySoulStealOrb
+    - func_psp_0923AD68
   end: EntityEnemyBlood
 e_collect:
   start: PrizeDropFall
@@ -120,8 +117,8 @@ e_clouds:
   start: EntityClouds
 e_cutscene:
   start:
-    us: CutsceneUnk1
-    pspeu: DrawCutsceneActorName
+    - CutsceneUnk1
+    - DrawCutsceneActorName
   end: ${prefix}_EntityCutscene
 e_warp_room:
   start: EntityWarpRoom
