@@ -35,8 +35,16 @@ Additonal notes:
 """
 
 # Todo: Allow matches to default functions, but only if there isn't a named match
-# Todo: Review accurate naming for offset and address variables
+# Todo: Review accuracy of naming for offset and address variables
 # Todo: Handle merging psp ovl.h file with existing psx ovl.h file
+# Todo: Collect warnings and display in summary upon completion
+# Todo: Add symbols closer to where the address is gathered
+# Todo: Add einit common symbols
+# Todo: Add EInits to e_init.c
+# Todo: Extract and import BackgroundBlockInit data
+# Todo: Extract and import RedDoorTiles data
+# Todo: Add g_eRedDoorUV data to e_red_door
+# Todo: Add // clang-format off if INCLUDE_ASM line longer than 80 characters
 
 def get_known_starts(ovl_name, version, segments_path = Path("tools/decomp_utils/segments.yaml")):
     segments_config = decomp_utils.yaml.safe_load(segments_path.read_text())
@@ -1112,7 +1120,7 @@ def main(args):
             )
         if suggested_segments:
             # Todo: Improve logging formatting
-            logger.info(f"Additional segments suggested by splat: {suggested_segments}")
+            logger.warning(f"Additional segments suggested by splat: {suggested_segments}")
 
     with decomp_utils.Spinner(message="populating e_inits"):
         create_extra_files(first_data_path.read_text(), ovl_config)

@@ -12,7 +12,7 @@ void UpdateStageEntities(void);
 if len(header_syms) <= 12:
     overlay_type = "AbbreviatedOverlay"
 # psp will probably be a length of 14 for this condition
-elif len(header_syms) == 13:
+elif len(header_syms) == 13 or len(header_syms) == 14:
     overlay_type = "u_long*"
 else:
     overlay_type = "Overlay"
