@@ -417,8 +417,8 @@ def rename_symbols(ovl_config, matches):
 
 
 def parse_psp_stage_init(asm_path):
-    stage_init_file, header_symbol, entity_table_symbol = None, None, None
-
+    stage_init_name, header_symbol, entity_table_symbol = None, None, None
+    first_address_pattern = re.compile(r"\s+/\*\s+[A-F0-9]{1,5}\s+([A-F0-9]{8})\s")
     for file in (
         dirpath / f
         for dirpath, _, filenames in asm_path.walk()
@@ -436,7 +436,9 @@ def parse_psp_stage_init(asm_path):
         ):
             match = RE_PATTERNS.psp_entity_export_table_pattern.search(file_text)
             if match:
-                return file.stem, match.group("export"), match.group("entity")
+                stage_init_address = first_address_pattern.search(file_text)
+                stage_init_address = int(stage_init_address.group(1), 16) if stage_init_address else None
+                return (file.stem, stage_init_address), match.group("export"), match.group("entity")
         # I'm pretty sure all of these are found in the same file, but keeping this here just in case
         else:
             if (
@@ -446,16 +448,18 @@ def parse_psp_stage_init(asm_path):
             ):
                 match = RE_PATTERNS.psp_export_table_pattern.search(file_text)
                 if match:
-                    stage_init_file = file.stem
+                    stage_init_name = file.stem
+                    stage_init_address = first_address_pattern.search(file_text)
+                    stage_init_address = int(stage_init_address.group(1), 16) if stage_init_address else None
                     header_symbol = match.group("export")
             if " C708023C " in file_text and " 30BC43AC " in file_text:
                 match = RE_PATTERNS.psp_entity_table_pattern.search(file_text)
                 if match:
                     entity_table_symbol = match.group("entity")
-            if stage_init_file and header_symbol and entity_table_symbol:
-                return file.stem, header_symbol, entity_table_symbol
+            if stage_init_name and header_symbol and entity_table_symbol:
+                return (stage_init_name, stage_init_address), header_symbol, entity_table_symbol
     else:
-        return stage_init_file, header_symbol, entity_table_symbol
+        return (stage_init_name, stage_init_address) if stage_init_name else None, header_symbol, entity_table_symbol
 
 
 def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol = None):
@@ -783,6 +787,7 @@ def main(args):
     with decomp_utils.Spinner(message=f"gathering initial symbols") as spinner:
         # Cleanup and split to functions as needed
         header_symbol, header_address, header_symbols = None, None, None
+        parsed_symbols = ()
         entity_table_symbol, entity_table_address, entity_table_symbols = (
             None,
             None,
@@ -805,12 +810,16 @@ def main(args):
             stage_init, header_symbol, entity_table_symbol = parse_psp_stage_init(
                 ovl_config.asm_path.joinpath(ovl_config.nonmatchings_path)
             )
-            if stage_init and not ovl_config.symexport_path.exists():
-                spinner.message = "creating symexport file"
-                symexport_text = f"EXTERN(_binary_assets_{ovl_config.path_prefix}{"_" if ovl_config.ovl_prefix else ""}{ovl_config.name}_mwo_header_bin_start);\n"
-                symexport_text += f"EXTERN({stage_init});\n"
-                ovl_config.symexport_path.write_text(symexport_text)
-                decomp_utils.shell(f"git add {ovl_config.symexport_path}")
+            if stage_init:
+                stage_init_name, stage_init_address = stage_init
+                if stage_init_name and stage_init_address:
+                    parsed_symbols += (decomp_utils.Symbol(f"{ovl_config.name.upper()}_Load", stage_init_address),)
+                if not ovl_config.symexport_path.exists():
+                    spinner.message = "creating symexport file"
+                    symexport_text = f"EXTERN(_binary_assets_{ovl_config.path_prefix}{"_" if ovl_config.ovl_prefix else ""}{ovl_config.name}_mwo_header_bin_start);\n"
+                    symexport_text += f"EXTERN({stage_init_name});\n"
+                    ovl_config.symexport_path.write_text(symexport_text)
+                    decomp_utils.shell(f"git add {ovl_config.symexport_path}")
 
         if first_data_text:
             spinner.message = f"parsing the overlay header for symbols"
@@ -844,7 +853,7 @@ def main(args):
             )
 
         if header_symbols or entity_table_symbols:
-            parsed_symbols = tuple(
+            parsed_symbols += tuple(
                 symbol
                 for symbols in (
                     header_symbols,
@@ -866,6 +875,8 @@ def main(args):
                         f"{ovl_config.name.upper()}_Overlay", header_address
                     ),
                 )
+
+        if parsed_symbols:
             spinner.message = f"adding {len(parsed_symbols)} parsed symbols and splitting using updated symbols"
             decomp_utils.add_symbols(ovl_config, parsed_symbols)
             decomp_utils.shell(
