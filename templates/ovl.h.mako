@@ -1,10 +1,15 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+% if ovl_type == "weapon":
+#include <weapon.h>
+% else:
+#include <stage.h>
+% endif
+
+#define OVL_EXPORT(x) {ovl_config.name.upper()}_##x
+% if e_inits != None and ovl_type != "weapon":
 <%
 maxlen = max(len(e_init) for function, e_init in e_inits) + 1
 %>
-// SPDX-License-Identifier: AGPL-3.0-or-later
-#include "stage.h"
-
-#define OVL_EXPORT(x) ${ovl_name.upper()}_##x
 
 enum OVL_EXPORT(Entities) {
     E_NONE,
@@ -13,3 +18,4 @@ enum OVL_EXPORT(Entities) {
 % endfor
     NUM_ENTITIES,
 };
+% endif

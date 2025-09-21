@@ -264,27 +264,29 @@ class SotnOverlayConfig:
             self.rodata_section: SimpleNamespace = SimpleNamespace(
                 address=None, offset=None, size=None
             )
-            # Unpack the bytes normally, but iterate through the unpacked data in reverse order
-            words = tuple(
-                word[0] for word in struct.iter_unpack("<I", self.data_section.bytes)
-            )
-            self.rodata_section.offset = yaml.Hex(
-                next(
-                    (
-                        align(self.bss_section.offset - (i * 4), 0x80)
-                        for i, word in enumerate(words[::-1])
-                        if word
-                        and not self.text_section.address
-                        <= word
-                        < self.data_section.address
-                    ),
-                    self.data_section.offset + 0x80,
-                ),
-            )
+            if self.ovl_type != "weapon":
+                # Unpack the bytes normally, but iterate through the unpacked data in reverse order
+                words = tuple(
+                    word[0] for word in struct.iter_unpack("<I", self.data_section.bytes)
+                )
 
-            self.rodata_section.address = (
-                self.bss_section.address - self.rodata_section.offset
-            )
+                self.rodata_section.offset = yaml.Hex(
+                    next(
+                        (
+                            align(self.bss_section.offset - (i * 4), 0x80)
+                            for i, word in enumerate(words[::-1])
+                            if word
+                            and not self.text_section.address
+                            <= word
+                            < self.data_section.address
+                        ),
+                        self.data_section.offset + 0x80,
+                    ),
+                )
+
+                self.rodata_section.address = (
+                    self.bss_section.address - self.rodata_section.offset
+                )
 
     @property
     def ovl_type(self):
@@ -483,7 +485,7 @@ class SotnOverlayConfig:
                 if x is not None
             ]
         elif not self._subsegments and self.platform == "psp":
-            self._subsegments = [
+            self._subsegments = [x for x in [
                 yaml.FlowSegment(
                     [0x80, "c", f"{self.segment_prefix}{self.first_src_file.stem}"]
                 ),
@@ -494,9 +496,9 @@ class SotnOverlayConfig:
                         ".rodata",
                         f"{self.segment_prefix}{self.first_src_file.stem}",
                     ]
-                ),
+                ) if self.rodata_section.offset else None,
                 yaml.FlowSegment([self.bss_section.offset, "bss"]),
-            ]
+            ] if x is not None]
         return self._subsegments
 
     @property
