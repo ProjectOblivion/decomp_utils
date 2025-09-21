@@ -18,19 +18,11 @@ st_init:
 st_common:
   start: DestroyEntity
   end: ReplaceBreakableWithItemDrop
-blit_char:
-  start:
-    - BlitChar
-    - func_psp_0923C2F8
-  end: BlitChar
 e_misc:
   start:
       - CheckColliderOffsets
       - EntityUnkId13
   end: PlaySfxPositional
-e_misc_2:
-  start: EntityHeartDrop
-  end: EntityMessageBox
 e_stage_name:
   start:
     - StageNamePopupHelper
@@ -42,8 +34,10 @@ e_particles:
     - func_psp_0923AD68
   end: EntityEnemyBlood
 e_collect:
-  start: PrizeDropFall
-  end: EntityRelicOrb
+  start:
+    - PrizeDropFall
+    - BlitChar
+  end: EntityMessageBox
 e_room_fg:
   start: EntityRoomForeground
 popup:
@@ -63,9 +57,10 @@ e_fire_warg:
 e_warg:
   start: func_801CF438
   end: EntityWargExplosionPuffTransparent
-st_debug:
+e_room_bg:
   start: ${prefix}_EntityBackgroundBlock
-  end: ${prefix}_EntityLockCamera
+e_lock_camera:
+  start: ${prefix}_EntityLockCamera
 e_venus_weed:
   start: SetupPrimsForEntitySpriteParts
   end: EntityVenusWeedSpike

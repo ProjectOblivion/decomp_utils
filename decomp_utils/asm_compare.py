@@ -88,7 +88,7 @@ def generate_clusters(version, overlays, threshold=0.95, exclude=[], debug=False
         dirpath / f
         for dirpath, _, filenames in Path("asm").joinpath(version).walk()
         if "data" not in dirpath.parts
-        and ("all" in overlays or any(x in dirpath.parts for x in overlays))
+        and ("all" in overlays or any(x in dirpath.parts or f"{x}_psp" in dirpath.parts for x in overlays))
         and not any(x in dirpath.parts for x in exclude)
         for f in filenames
     )

@@ -378,7 +378,6 @@ class SotnOverlayConfig:
                 "migrate_rodata_to_functions": self.migrate_rodata_to_functions,
                 "asm_jtbl_label_macro": self.asm_jtbl_label_macro,
                 "symbol_name_format": self.symbol_name_format,
-                "nonmatchings_path": self.nonmatchings_path,
                 "disassemble_all": self.disassemble_all,
                 "section_order": self.section_order,
                 "ld_bss_is_noload": self.ld_bss_is_noload,
@@ -476,7 +475,7 @@ class SotnOverlayConfig:
                         else None
                     ),
                     (
-                        yaml.FlowSegment([self.bss_section.offset, "sbss"])
+                        yaml.FlowSegment([self.bss_section.offset, "bss"])
                         if self.bss_section.offset
                         else None
                     ),
