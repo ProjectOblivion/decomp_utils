@@ -214,7 +214,9 @@ def find_segments(ovl_config):
             rodata_offset = decomp_utils.get_symbol_offset(ovl_config, rodata_symbol)
             if rodata_offset:
                 rodata_subsegments.append(
-                    SimpleNamespace(offset=rodata_offset, type=".rodata", name=segment.name)
+                    SimpleNamespace(
+                        offset=rodata_offset, type=".rodata", name=segment.name
+                    )
                 )
 
         # Extract rodata offsets from assembly files referenced in INCLUDE_ASM macros
@@ -493,31 +495,32 @@ def parse_psp_stage_init(asm_path):
             entity_table_symbol,
         )
 
+
 def parse_psp_weapon_load(asm_path):
     weapon_init_name, header_symbol = None, None
     first_address_pattern = re.compile(r"\s+/\*\s+[A-F0-9]{1,5}\s+([A-F0-9]{8})\s")
     for file in (
-        dirpath / f
-        for dirpath, _, filenames in asm_path.walk()
-        for f in filenames
-    ): 
-            file_text = file.read_text()
-            # Weapon ovls only have memcopy
-            if ".data.s" in file.name:
-                header_index = file_text.find("func_")
-                if header_index != -1:
-                    header_symbol = file_text[file_text.rfind("glabel", 0, header_index):header_index].splitlines()[0].replace("glabel ", "")
-            elif " E127240E " in file_text:
-                weapon_init_name = file.stem
-                weapon_init_address = first_address_pattern.search(file_text)
-                weapon_init_address = (
-                    int(weapon_init_address.group(1), 16)
-                    if weapon_init_address
-                    else None
+        dirpath / f for dirpath, _, filenames in asm_path.walk() for f in filenames
+    ):
+        file_text = file.read_text()
+        # Weapon ovls only have memcopy
+        if ".data.s" in file.name:
+            header_index = file_text.find("func_")
+            if header_index != -1:
+                header_symbol = (
+                    file_text[file_text.rfind("glabel", 0, header_index) : header_index]
+                    .splitlines()[0]
+                    .replace("glabel ", "")
                 )
+        elif " E127240E " in file_text:
+            weapon_init_name = file.stem
+            weapon_init_address = first_address_pattern.search(file_text)
+            weapon_init_address = (
+                int(weapon_init_address.group(1), 16) if weapon_init_address else None
+            )
 
     return (weapon_init_name, weapon_init_address), header_symbol
-            
+
 
 def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol=None):
     # Account for both Abbreviated and full headers
@@ -950,14 +953,18 @@ def main(args):
         )
 
         if ovl_config.platform == "psp":
-            if  ovl_config.ovl_type == "stage" or ovl_config.ovl_type == "boss":
+            if ovl_config.ovl_type == "stage" or ovl_config.ovl_type == "boss":
                 spinner.message = f"parsing the psp stage init for symbols"
-                init_function, header_symbol, entity_table_symbol = parse_psp_stage_init(
-                    ovl_config.asm_path.joinpath(ovl_config.nonmatchings_path)
+                init_function, header_symbol, entity_table_symbol = (
+                    parse_psp_stage_init(
+                        ovl_config.asm_path.joinpath(ovl_config.nonmatchings_path)
+                    )
                 )
             elif ovl_config.ovl_type == "weapon":
                 spinner.message = f"parsing the psp weapon init for symbols"
-                init_function, header_symbol = parse_psp_weapon_load(ovl_config.asm_path)
+                init_function, header_symbol = parse_psp_weapon_load(
+                    ovl_config.asm_path
+                )
 
             if init_function:
                 init_function_name, init_function_address = init_function
@@ -1005,7 +1012,11 @@ def main(args):
                 .split()[1]
             )
 
-        if not ovl_config.name.startswith("w0_") and not ovl_config.name.startswith("w1_") and entity_table_symbol:
+        if (
+            not ovl_config.name.startswith("w0_")
+            and not ovl_config.name.startswith("w1_")
+            and entity_table_symbol
+        ):
             spinner.message = f"parsing the entity table for symbols"
             entity_table_address, entity_table_symbols = parse_entity_table(
                 first_data_text, ovl_config.name, entity_table_symbol
@@ -1283,7 +1294,12 @@ def main(args):
         rodata_subsegs = [decomp_utils.yaml.FlowSegment(x) for x in rodata_segments]
         ovl_config.subsegments[first_text_index : first_text_index + 1] = text_subsegs
         first_rodata_index = next(
-            (i for i, subseg in enumerate(ovl_config.subsegments) if ".rodata" in subseg), None
+            (
+                i
+                for i, subseg in enumerate(ovl_config.subsegments)
+                if ".rodata" in subseg
+            ),
+            None,
         )
         if first_rodata_index:
             ovl_config.subsegments[first_rodata_index : first_rodata_index + 1] = (

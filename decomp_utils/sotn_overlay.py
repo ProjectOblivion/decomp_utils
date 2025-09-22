@@ -244,8 +244,8 @@ class SotnOverlayConfig:
                 ".set noat      /* allow manual use of $at */\n.set noreorder /* don't insert nops after branches */\n"
             )
             self.text_section = SimpleNamespace(
-                address=self.mwo_header.address + 0x80,
-                offset=0x80,
+                address=align(self.mwo_header.address + 0x40, 0x80),
+                offset=align(self.mwo_header.address + 0x40, 0x80),
                 size=self.mwo_header.text_size,
             )
             self.bss_section = SimpleNamespace(
@@ -255,7 +255,7 @@ class SotnOverlayConfig:
             )
             self.data_section = SimpleNamespace(
                 address=align(self.text_section.address + self.text_section.size, 0x80),
-                offset=align(self.text_section.size, 0x80),
+                offset=align(0x40 + self.text_section.size, 0x80),
                 size=self.mwo_header.data_size,
                 bytes=self.bin_bytes[
                     self.data_section.offset : self.bss_section.offset
@@ -267,7 +267,8 @@ class SotnOverlayConfig:
             if self.ovl_type != "weapon":
                 # Unpack the bytes normally, but iterate through the unpacked data in reverse order
                 words = tuple(
-                    word[0] for word in struct.iter_unpack("<I", self.data_section.bytes)
+                    word[0]
+                    for word in struct.iter_unpack("<I", self.data_section.bytes)
                 )
 
                 self.rodata_section.offset = yaml.Hex(
@@ -485,20 +486,28 @@ class SotnOverlayConfig:
                 if x is not None
             ]
         elif not self._subsegments and self.platform == "psp":
-            self._subsegments = [x for x in [
-                yaml.FlowSegment(
-                    [0x80, "c", f"{self.segment_prefix}{self.first_src_file.stem}"]
-                ),
-                yaml.FlowSegment([self.data_section.offset, "data"]),
-                yaml.FlowSegment(
-                    [
-                        self.rodata_section.offset,
-                        ".rodata",
-                        f"{self.segment_prefix}{self.first_src_file.stem}",
-                    ]
-                ) if self.rodata_section.offset else None,
-                yaml.FlowSegment([self.bss_section.offset, "bss"]),
-            ] if x is not None]
+            self._subsegments = [
+                x
+                for x in [
+                    yaml.FlowSegment(
+                        [0x80, "c", f"{self.segment_prefix}{self.first_src_file.stem}"]
+                    ),
+                    yaml.FlowSegment([self.data_section.offset, "data"]),
+                    (
+                        yaml.FlowSegment(
+                            [
+                                self.rodata_section.offset,
+                                ".rodata",
+                                f"{self.segment_prefix}{self.first_src_file.stem}",
+                            ]
+                        )
+                        if self.rodata_section.offset
+                        else None
+                    ),
+                    yaml.FlowSegment([self.bss_section.offset, "bss"]),
+                ]
+                if x is not None
+            ]
         return self._subsegments
 
     @property
