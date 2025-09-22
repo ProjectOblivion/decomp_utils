@@ -5,12 +5,11 @@
 #include <stage.h>
 % endif
 
-#define OVL_EXPORT(x) {ovl_config.name.upper()}_##x
+#define OVL_EXPORT(x) ${ovl_name.upper()}_##x
 % if e_inits != None and ovl_type != "weapon":
 <%
 maxlen = max(len(e_init) for function, e_init in e_inits) + 1
 %>
-
 enum OVL_EXPORT(Entities) {
     E_NONE,
 % for function, e_init in e_inits:
