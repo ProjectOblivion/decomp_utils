@@ -212,9 +212,12 @@ def find_segments(ovl_config):
         # Extract rodata symbols from INCLUDE_RODATA macros
         for rodata_symbol in RE_PATTERNS.include_rodata.findall(segment_text):
             rodata_offset = decomp_utils.get_symbol_offset(ovl_config, rodata_symbol)
-            rodata_subsegments.append(
-                SimpleNamespace(offset=rodata_offset, type=".rodata", name=segment.name)
-            )
+            if rodata_offset:
+                rodata_subsegments.append(
+                    SimpleNamespace(
+                        offset=rodata_offset, type=".rodata", name=segment.name
+                    )
+                )
 
         # Extract rodata offsets from assembly files referenced in INCLUDE_ASM macros
         asm_files = [
@@ -231,7 +234,7 @@ def find_segments(ovl_config):
             asm_text = asm_file.read_text()
             rodata_start = asm_text.find(".section .rodata")
             text_start = asm_text.find(".section .text")
-            if rodata_start != -1 and text_start > rodata_start:
+            if rodata_start != -1 and (text_start > rodata_start or text_start == -1):
                 rodata_text = (
                     asm_text[rodata_start:text_start]
                     if text_start > rodata_start
@@ -414,19 +417,19 @@ def rename_symbols(ovl_config, matches):
                     f"Found unhandled naming condition: Target name {match.ref.counts.no_defaults} for {ovl_config.name} function(s) {match.check.names} with score {match.score}"
                 )
 
-    if not symbols:
+    if symbols:
+        # Todo: Figure out a better way to handle multiple functions mapping to multiple functions with the same name
+        decomp_utils.add_symbols(
+            ovl_config,
+            tuple(
+                sorted(syms, key=lambda x: x.address, reverse=True)[0]
+                for syms in symbols.values()
+            ),
+        )
+        return len(symbols)
+    else:
         logger.warning("\nNo new symbols found\n")
-        # Todo: Where should this continue on if no new symbols are found?
-        exit()
-    # Todo: Figure out a better way to handle multiple functions mapping to multiple functions with the same name
-    decomp_utils.add_symbols(
-        ovl_config,
-        tuple(
-            sorted(syms, key=lambda x: x.address, reverse=True)[0]
-            for syms in symbols.values()
-        ),
-    )
-    return len(symbols)
+        return 0
 
 
 def parse_psp_stage_init(asm_path):
@@ -487,10 +490,36 @@ def parse_psp_stage_init(asm_path):
                 )
     else:
         return (
-            (stage_init_name, stage_init_address) if stage_init_name else None,
+            (stage_init_name, stage_init_address),
             header_symbol,
             entity_table_symbol,
         )
+
+
+def parse_psp_weapon_load(asm_path):
+    weapon_init_name, header_symbol = None, None
+    first_address_pattern = re.compile(r"\s+/\*\s+[A-F0-9]{1,5}\s+([A-F0-9]{8})\s")
+    for file in (
+        dirpath / f for dirpath, _, filenames in asm_path.walk() for f in filenames
+    ):
+        file_text = file.read_text()
+        # Weapon ovls only have memcopy
+        if ".data.s" in file.name:
+            header_index = file_text.find("func_")
+            if header_index != -1:
+                header_symbol = (
+                    file_text[file_text.rfind("glabel", 0, header_index) : header_index]
+                    .splitlines()[0]
+                    .replace("glabel ", "")
+                )
+        elif " E127240E " in file_text:
+            weapon_init_name = file.stem
+            weapon_init_address = first_address_pattern.search(file_text)
+            weapon_init_address = (
+                int(weapon_init_address.group(1), 16) if weapon_init_address else None
+            )
+
+    return (weapon_init_name, weapon_init_address), header_symbol
 
 
 def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol=None):
@@ -559,7 +588,7 @@ def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol=Non
     # Todo: Should this be findall or finditer?
     matches = RE_PATTERNS.symbol_line_pattern.findall(header)
     if matches:
-        if len(matches) > 7:
+        if ovl_type != "weapon" and len(matches) > 7:
             pStObjLayoutHorizontal_address = int.from_bytes(
                 bytes.fromhex(matches[7][0]), "little"
             )
@@ -735,6 +764,7 @@ def create_extra_files(data_file_text, ovl_config):
         template = Template(Path("tools/decomp_utils/templates/ovl.h.mako").read_text())
         output = template.render(
             ovl_name=ovl_config.name,
+            ovl_type=ovl_config.ovl_type,
             e_inits=e_inits,
         )
         ovl_config.src_path_full.joinpath(ovl_config.name).with_suffix(".h").write_text(
@@ -759,6 +789,7 @@ def create_extra_files(data_file_text, ovl_config):
         )
         output = template.render(
             ovl_header_path=ovl_header_path,
+            ovl_type=ovl_config.ovl_type,
             header_syms=header_syms,
         )
         ovl_config.src_path_full.joinpath("header.c").write_text(output)
@@ -841,11 +872,12 @@ def main(args):
         header_path = (
             ovl_config.src_path_full.with_name(ovl_config.name) / f"{ovl_config.name}.h"
         )
-        ovl_header_text = f"""// SPDX-License-Identifier: AGPL-3.0-or-later
-#include "stage.h"
-
-#define OVL_EXPORT(x) {ovl_config.name.upper()}_##x
-"""
+        template = Template(Path("tools/decomp_utils/templates/ovl.h.mako").read_text())
+        ovl_header_text = template.render(
+            ovl_name=ovl_config.name,
+            ovl_type=ovl_config.ovl_type,
+            e_inits=None,
+        )
         if not header_path.exists():
             header_path.parent.mkdir(parents=True, exist_ok=True)
             header_path.write_text(ovl_header_text)
@@ -872,6 +904,25 @@ def main(args):
 
         decomp_utils.shell(f"git add {check_file_path}")
 
+        # These blocks may result in misordered symbols, but it isn't worth addressing for one time use blocks
+        # psx rchi has a data value that gets interpreted as a global symbol, so that symbol needs to be defined for the linker
+        if ovl_config.name == "rchi" and ovl_config.platform == "psx":
+            undefined_syms = Path(f"config/undefined_syms.{ovl_config.version}.txt")
+            undefined_syms_text = undefined_syms.read_text()
+            if "PadRead" not in undefined_syms_text:
+                undefined_syms.write_text(
+                    f'PadRead{" "*13}= 0x80015288;\n{undefined_syms_text}'
+                )
+                decomp_utils.shell(f"git add {undefined_syms}")
+        # psp bo4 has data values that get interpreted as a global symbol, so that symbol needs to be defined for the linker
+        elif ovl_config.name == "bo4" and ovl_config.platform == "psp":
+            undefined_syms = Path(f"config/undefined_syms.{ovl_config.version}.txt")
+            undefined_syms_text = undefined_syms.read_text()
+            if "g_Clut" not in undefined_syms_text:
+                undefined_syms.write_text(
+                    f'g_Clut{" "*13}= 0x091F5DF8;\n{undefined_syms_text}'
+                )
+                decomp_utils.shell(f"git add {undefined_syms}")
         spinner.message = f"performing initial split with {ovl_config.config_path}"
         decomp_utils.splat_split(ovl_config.config_path, ovl_config.disassemble_all)
         src_text = ovl_config.first_src_file.read_text()
@@ -891,6 +942,7 @@ def main(args):
         first_data_index = next(
             i for i, subseg in enumerate(ovl_config.subsegments) if "data" in subseg
         )
+
         first_data_path = (
             ovl_config.asm_path
             / "data"
@@ -901,22 +953,31 @@ def main(args):
         )
 
         if ovl_config.platform == "psp":
-            spinner.message = f"parsing the psp stage init for symbols"
-            stage_init, header_symbol, entity_table_symbol = parse_psp_stage_init(
-                ovl_config.asm_path.joinpath(ovl_config.nonmatchings_path)
-            )
-            if stage_init:
-                stage_init_name, stage_init_address = stage_init
-                if stage_init_name and stage_init_address:
+            if ovl_config.ovl_type == "stage" or ovl_config.ovl_type == "boss":
+                spinner.message = f"parsing the psp stage init for symbols"
+                init_function, header_symbol, entity_table_symbol = (
+                    parse_psp_stage_init(
+                        ovl_config.asm_path.joinpath(ovl_config.nonmatchings_path)
+                    )
+                )
+            elif ovl_config.ovl_type == "weapon":
+                spinner.message = f"parsing the psp weapon init for symbols"
+                init_function, header_symbol = parse_psp_weapon_load(
+                    ovl_config.asm_path
+                )
+
+            if init_function:
+                init_function_name, init_function_address = init_function
+                if init_function_name and init_function_address:
                     parsed_symbols += (
                         decomp_utils.Symbol(
-                            f"{ovl_config.name.upper()}_Load", stage_init_address
+                            f"{ovl_config.name.upper()}_Load", init_function_address
                         ),
                     )
                 if not ovl_config.symexport_path.exists():
                     spinner.message = "creating symexport file"
-                    symexport_text = f"EXTERN(_binary_assets_{ovl_config.path_prefix}{"_" if ovl_config.ovl_prefix else ""}{ovl_config.name}_mwo_header_bin_start);\n"
-                    symexport_text += f"EXTERN({stage_init_name});\n"
+                    symexport_text = f"EXTERN(_binary_assets_{ovl_config.path_prefix}{"_" if ovl_config.path_prefix else ""}{ovl_config.name}_mwo_header_bin_start);\n"
+                    symexport_text += f"EXTERN({init_function_name});\n"
                     ovl_config.symexport_path.write_text(symexport_text)
                     decomp_utils.shell(f"git add {ovl_config.symexport_path}")
 
@@ -931,6 +992,7 @@ def main(args):
                     header_symbol,
                 )
             )
+
 
         if pStObjLayoutHorizontal_address and not entity_table_symbol:
             spinner.message = f"finding the entity table"
@@ -951,7 +1013,11 @@ def main(args):
                 .split()[1]
             )
 
-        if entity_table_symbol:
+        if (
+            not ovl_config.name.startswith("w0_")
+            and not ovl_config.name.startswith("w1_")
+            and entity_table_symbol
+        ):
             spinner.message = f"parsing the entity table for symbols"
             entity_table_address, entity_table_symbols = parse_entity_table(
                 first_data_text, ovl_config.name, entity_table_symbol
@@ -1006,9 +1072,22 @@ def main(args):
             # Todo: Evaluate whether limiting to stage and non-stage overlays as references makes a practical difference in execution time
             if (
                 ref_version
+                and ovl_config.ovl_type != "weapon"
                 and "main" not in file.name
                 and "weapon" not in file.name
                 and "mad" not in file.name
+                and ovl_config.name not in file.name
+                and file.match("splat.*.yaml")
+                and (match := RE_PATTERNS.ref_pattern.match(file.name))
+            ):
+                ref_basenames.append(
+                    f'{match.group("prefix") or ""}{match.group("ref_ovl")}'
+                )
+                ref_ovls.append(match.group("ref_ovl"))
+            elif (
+                ref_version
+                and ovl_config.ovl_type == "weapon"
+                and "weapon" in file.name
                 and ovl_config.name not in file.name
                 and file.match("splat.*.yaml")
                 and (match := RE_PATTERNS.ref_pattern.match(file.name))
@@ -1043,7 +1122,8 @@ def main(args):
         decomp_utils.shell(
             f"git clean -fdx asm/{ovl_config.version}/ -e {ovl_config.asm_path}"
         )
-        decomp_utils.build(ref_lds, plan=False, version=ovl_config.version)
+        if ref_basenames:
+            decomp_utils.build(ref_lds, plan=False, version=ovl_config.version)
 
         # Removes forced symbols files
         # Todo: checkout each file instead of the whole dir
@@ -1180,7 +1260,7 @@ def main(args):
                                 )
                             )
 
-    if new_syms:
+    if ref_files_by_name and new_syms:
         with decomp_utils.Spinner(
             message=f"adding {len(new_syms)} cross referenced symbols and splitting again"
         ):
@@ -1215,11 +1295,17 @@ def main(args):
         rodata_subsegs = [decomp_utils.yaml.FlowSegment(x) for x in rodata_segments]
         ovl_config.subsegments[first_text_index : first_text_index + 1] = text_subsegs
         first_rodata_index = next(
-            i for i, subseg in enumerate(ovl_config.subsegments) if ".rodata" in subseg
+            (
+                i
+                for i, subseg in enumerate(ovl_config.subsegments)
+                if ".rodata" in subseg
+            ),
+            None,
         )
-        ovl_config.subsegments[first_rodata_index : first_rodata_index + 1] = (
-            rodata_subsegs
-        )
+        if first_rodata_index:
+            ovl_config.subsegments[first_rodata_index : first_rodata_index + 1] = (
+                rodata_subsegs
+            )
 
     ovl_config.write_config()
 
@@ -1254,22 +1340,6 @@ def main(args):
 
     built_bin = ovl_config.build_path / f"{ovl_config.target_path.name}"
     with decomp_utils.Spinner(message=f"building and validating {built_bin}"):
-        # These blocks may result in misordered symbols, but it isn't worth addressing for one time use blocks
-        # psx rchi has a data value that gets interpreted as a global symbol, so that symbol needs to be defined for the linker
-        if ovl_config.name == "rchi" and ovl_config.platform == "psx":
-            undefined_syms = Path(f"config/undefined_syms.{ovl_config.version}.txt")
-            undefined_syms.write_text(
-                f'PadRead{" "*13}= 0x80015288;\n{undefined_syms.read_text()}'
-            )
-            decomp_utils.shell(f"git add {undefined_syms}")
-        # psp bo4 has data values that get interpreted as a global symbol, so that symbol needs to be defined for the linker
-        elif ovl_config.name == "bo4" and ovl_config.platform == "psp":
-            undefined_syms = Path(f"config/undefined_syms.{ovl_config.version}.txt")
-            undefined_syms.write_text(
-                f'g_Clut{" "*13}= 0x091F5DF8;\n{undefined_syms.read_text()}'
-            )
-            decomp_utils.shell(f"git add {undefined_syms}")
-
         decomp_utils.build(
             [
                 f'{ovl_config.ld_script_path.with_suffix(".elf")}',
