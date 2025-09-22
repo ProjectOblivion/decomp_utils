@@ -993,6 +993,7 @@ def main(args):
                 )
             )
 
+
         if pStObjLayoutHorizontal_address and not entity_table_symbol:
             spinner.message = f"finding the entity table"
             # Todo: Find a less complicated way to handle this
