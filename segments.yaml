@@ -25,6 +25,7 @@ e_misc:
   end: PlaySfxPositional
 e_stage_name:
   start:
+    - EntityStageNamePopup
     - StageNamePopupHelper
     - func_psp_0923C0C0
   end: EntityStageNamePopup
@@ -35,8 +36,9 @@ e_particles:
   end: EntityEnemyBlood
 e_collect:
   start:
-    - PrizeDropFall
+    - func_psp_0923C390
     - BlitChar
+    - PrizeDropFall
   end: EntityMessageBox
 e_room_fg:
   start: EntityRoomForeground
@@ -68,7 +70,18 @@ water_effects:
   start: func_801C4144
   end: EntityWaterDrop
 e_breakable:
-  start: EntityUnkBreakable
+  start: 
+    - EntityBreakable
+    - EntityUnkBreakable
+    - ${prefix}_EntityBreakable
+    - ${prefix}_EntityUnkBreakable
+  allow: 
+    - EntityBreakable
+    - EntityUnkBreakable
+    - EntityBreakableDebris
+    - ${prefix}_EntityBreakable
+    - ${prefix}_EntityUnkBreakable
+    - ${prefix}_EntityBreakableDebris
 e_jewel_sword_puzzle:
   start: EntityMermanRockLeftSide
   end: EntityFallingRock2
@@ -120,3 +133,38 @@ e_warp_room:
   end: EntityWarpSmallRocks
 e_life_up:
   start: EntityLifeUpSpawn
+e_bell:
+  start: EntityBell
+  allow:
+    - EntityBell
+    - EntityBellHelper
+e_dai_no2_shortcut:
+  start: EntityBlock
+  allow:
+    - EntityBlock
+    - EntityStatue
+e_room_bg_2:
+  start: EntityCastleWall1
+  allow:
+    - EntityCastleWall1
+    - EntityCastleWall2
+    - EntityStaircase
+e_stained_glass:
+  start: StainedGlassBlendPalette
+  allow:
+    - StainedGlassBlendPalette
+    - StainedGlassRecurseDepth
+    - EntityStainedGlass
+    - EntityStainedGlassBackground
+e_spectral_sword:
+  start: StepTowards
+  end: EntitySpectralSwordAura
+e_spikes:
+  start: EntitySpikesDust
+  allow:
+    - EntitySpikesDust
+    - EntitySpikesParts
+    - SpikesBreak
+    - SpikesApplyDamage
+    - EntitySpikes
+    - EntitySpikesDamage
