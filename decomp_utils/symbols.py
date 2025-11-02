@@ -12,7 +12,6 @@ __all__ = [
     "remove_orphans_from_config",
     "add_symbols",
     "get_symbol_offset",
-    "get_symbols",
     "force_symbols",
     "Symbol",
 ]
@@ -162,62 +161,5 @@ def get_symbol_offset(ovl_config, symbol_name):
         return None
 
 
-def force_symbols(elf_files, version="us"):
-    # Excluding pspeu dra because it doesn't play nice with forced symbols currently
-    for elf_file in (x for x in elf_files if version != "pspeu" or "dra" not in x.name):
-        config = yaml.safe_load(
-            Path(f"config/splat.{version}.{elf_file.stem}.yaml").open()
-        )
-        symbols_path = next(
-            (
-                Path(path)
-                for path in config["options"]["symbol_addrs_path"]
-                if elf_file.stem in path
-            ),
-            None,
-        )
-        if symbols_path.exists():
-            excluded_starts = {"LM", "__pad"}
-            excluded_ends = {"_START", "_END", "_VRAM"}
-            symbols_lines = [
-                f"{symbol.name} = 0x{symbol.address:08X}; // allow_duplicated:True"
-                for symbol in get_symbols(elf_file, excluded_starts, excluded_ends)
-            ]
-            symbols_path.write_text(f"{"\n".join(symbols_lines)}\n")
-        else:
-            logger.warning(f"No symbols file found for {elf_file}, skipping")
-
-
-def get_symbols(
-    file_path,
-    excluded_starts=["LM", "__pad"],
-    excluded_ends=["_END", "_START", "_VRAM"],
-    no_default=False,
-):
-    symbols = set()
-    match file_path.suffix:
-        case ".map":
-            text = file_path.read_text()
-            matches = RE_PATTERNS.map_symbol.finditer(text)
-        case ".elf":
-            text = shell(f"nm {file_path}").decode()
-            matches = RE_PATTERNS.elf_symbol.finditer(text)
-        case _:
-            raise SystemError(
-                "File to extract symbols from must be either .elf or .map"
-            )
-
-    for match in matches:
-        symbol_name = match.group("name")
-        if not no_default or (
-            not symbol_name.startswith("func_") and not symbol_name.startswith("D_")
-        ):
-            filters = "_compiled" not in symbol_name and not symbol_name.endswith("_c")
-            if (
-                filters
-                and not any(symbol_name.startswith(x) for x in excluded_starts)
-                and not any(symbol_name.endswith(x) for x in excluded_ends)
-            ):
-                symbols.add(Symbol(symbol_name, int(match.group("address"), 16)))
-
-    return sorted(symbols, key=lambda x: x.address)
+def force_symbols(version="us"):
+    shell(f"make VERSION={version} force_symbols")

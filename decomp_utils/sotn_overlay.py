@@ -146,11 +146,15 @@ class SotnOverlayConfig:
         self.ovl_symbol_addrs_path: Path = _symbols_base_path.joinpath(
             f"symbols.{self.version}.{self.basename}.txt"
         )
-        self.undefined_funcs_auto_path: Path = _symbols_base_path.joinpath(
-            f"undefined_funcs_auto.{self.version}.{self.basename}.txt"
+        self.undefined_funcs_auto_path: Path = (
+            self.build_path
+            / "config"
+            / f"undefined_funcs_auto.{self.version}.{self.basename}.txt"
         )
-        self.undefined_syms_auto_path: Path = _symbols_base_path.joinpath(
-            f"undefined_syms_auto.{self.version}.{self.basename}.txt"
+        self.undefined_syms_auto_path: Path = (
+            self.build_path
+            / "config"
+            / f"undefined_syms_auto.{self.version}.{self.basename}.txt"
         )
         self.symbol_addrs_path: tuple[Path] = (
             self.global_symbol_addrs_path,
