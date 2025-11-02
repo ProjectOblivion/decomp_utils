@@ -907,22 +907,20 @@ def main(args):
         # These blocks may result in misordered symbols, but it isn't worth addressing for one time use blocks
         # psx rchi has a data value that gets interpreted as a global symbol, so that symbol needs to be defined for the linker
         if ovl_config.name == "rchi" and ovl_config.platform == "psx":
-            undefined_syms = Path(f"config/undefined_syms.{ovl_config.version}.txt")
+            undefined_syms = Path(f"build/{ovl_config.version}/config/undefined_syms.{ovl_config.version}.txt")
             undefined_syms_text = undefined_syms.read_text()
             if "PadRead" not in undefined_syms_text:
                 undefined_syms.write_text(
                     f'PadRead{" "*13}= 0x80015288;\n{undefined_syms_text}'
                 )
-                decomp_utils.shell(f"git add {undefined_syms}")
         # psp bo4 has data values that get interpreted as a global symbol, so that symbol needs to be defined for the linker
         elif ovl_config.name == "bo4" and ovl_config.platform == "psp":
-            undefined_syms = Path(f"config/undefined_syms.{ovl_config.version}.txt")
+            undefined_syms = Path(f"build/{ovl_config.version}/config/undefined_syms.{ovl_config.version}.txt")
             undefined_syms_text = undefined_syms.read_text()
             if "g_Clut" not in undefined_syms_text:
                 undefined_syms.write_text(
                     f'g_Clut{" "*13}= 0x091F5DF8;\n{undefined_syms_text}'
                 )
-                decomp_utils.shell(f"git add {undefined_syms}")
         spinner.message = f"performing initial split with {ovl_config.config_path}"
         decomp_utils.splat_split(ovl_config.config_path, ovl_config.disassemble_all)
         src_text = ovl_config.first_src_file.read_text()
@@ -1114,21 +1112,9 @@ def main(args):
         message=f"extracting symbols from {len(ref_basenames)} reference .elf files"
     ) as spinner:
         decomp_utils.force_symbols(
-            tuple(ld.with_suffix(".elf") for ld in ref_lds),
             version=ovl_config.version,
         )
-
-        spinner.message = f"disassembling {len(ref_basenames)} reference overlays"
-        decomp_utils.shell(
-            f"git clean -fdx asm/{ovl_config.version}/ -e {ovl_config.asm_path}"
-        )
-        if ref_basenames:
-            decomp_utils.build(ref_lds, plan=False, version=ovl_config.version)
-
-        # Removes forced symbols files
-        # Todo: checkout each file instead of the whole dir
-        decomp_utils.shell("git checkout config/")
-
+        decomp_utils.splat_split(ovl_config.config_path, True)
     with decomp_utils.Spinner(
         message=f"parsing instructions from reference overlay asm files"
     ) as spinner:
