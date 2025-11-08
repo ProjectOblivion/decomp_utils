@@ -28,7 +28,7 @@ NULL = namedtuple("Null", ["BYTE", "INT", "STR"])(b"\x00", 0x0, "")
 class MwOverlayHeader:
     """A Python implementation of the MetroWerks overlay header"""
 
-    # https://gist.sharingeye.com/Linblow/541a3b24559f9c89374fdbd9e0693c40
+    # https://gist.github.com/Linblow/541a3b24559f9c89374fdbd9e0693c40
     """
     typedef struct {
     /* 0x0 */ uint8_t identifier[3];   // Header identifier "MWo"
@@ -146,10 +146,10 @@ class SotnOverlayConfig:
         self.ovl_symbol_addrs_path: Path = _symbols_base_path.joinpath(
             f"symbols.{self.version}.{self.basename}.txt"
         )
-        self.undefined_funcs_auto_path: Path = _symbols_base_path.joinpath(
+        self.undefined_funcs_auto_path: Path = self.build_path.joinpath(_symbols_base_path,
             f"undefined_funcs_auto.{self.version}.{self.basename}.txt"
         )
-        self.undefined_syms_auto_path: Path = _symbols_base_path.joinpath(
+        self.undefined_syms_auto_path: Path = self.build_path.joinpath(_symbols_base_path,
             f"undefined_syms_auto.{self.version}.{self.basename}.txt"
         )
         self.symbol_addrs_path: tuple[Path] = (

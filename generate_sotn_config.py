@@ -54,29 +54,36 @@ def get_known_starts(
 
     known_segments = []
     # Todo: Simplify this logic
-    for name, boundaries in segments_config.items():
-        if isinstance(boundaries["start"], str):
-            starts = [boundaries["start"]]
-        elif isinstance(boundaries["start"], list):
-            starts = boundaries["start"]
-        else:
+    for label, values in segments_config.items():
+        if not values:
             continue
 
-        if "end" not in boundaries:
-            end = starts[0]
-        elif isinstance(boundaries["end"], str):
-            end = boundaries["end"]
-        else:
-            continue
+        if "ovl" not in values or ovl_name in values["ovl"]:
+            if isinstance(values["start"], str):
+                starts = [values["start"]]
+            elif isinstance(values["start"], list):
+                starts = values["start"]
+            else:
+                continue
 
-        known_segments.extend(
-            SimpleNamespace(
-                name=name.replace("${prefix}", ovl_name.upper()),
-                start=start.replace("${prefix}", ovl_name.upper()),
-                end=end.replace("${prefix}", ovl_name.upper()),
+            if "end" in values and isinstance(values["end"], str):
+                end = values["end"]
+            elif "allow" not in values:
+                end = starts[0]
+            elif isinstance(values["allow"], list):
+                end = ""
+            else:
+                continue
+
+            known_segments.extend(
+                SimpleNamespace(
+                    name=values.get("name", label).replace("${prefix}", ovl_name.upper()),
+                    start=start.replace("${prefix}", ovl_name.upper()),
+                    end=end.replace("${prefix}", ovl_name.upper()),
+                    allow=tuple(v.replace("${prefix}", ovl_name.upper()) for v in values.get("allow", [])) or None
+                )
+                for start in starts
             )
-            for start in starts
-        )
     return {x.start: x for x in known_segments}
 
 
@@ -98,6 +105,7 @@ def find_segments(ovl_config):
             current_function in known_starts
             and (
                 not segment_meta
+                or not segment_meta.name
                 or not segment_meta.name.endswith(known_starts[current_function].name)
             )
         ) or (
@@ -105,7 +113,7 @@ def find_segments(ovl_config):
             and matches[i + 1][1] in known_starts
         ):
             if segment_meta:
-                if len(functions) == 1:
+                if not segment_meta.name and len(functions) == 1:
                     segment_meta.name = f'{ovl_config.segment_prefix}{RE_PATTERNS.camel_case.sub(r"\1_\2", functions[0]).lower().replace("entity", "e")}'
                 segment_meta.end = functions[-1]
                 logger.debug(
@@ -131,6 +139,7 @@ def find_segments(ovl_config):
                 end=None,
                 asm_dir=asm_dir,
                 offset=None,
+                allow=None,
             )
 
         if segment_meta and not segment_meta.offset:
@@ -162,12 +171,44 @@ def find_segments(ovl_config):
             segments.append(segment_meta)
             functions.clear()
             segment_meta = None
-        else:
+        elif segment_meta and segment_meta.allow and current_function not in segment_meta.allow:
+            logger.debug(
+                f"Found text segment for {segment_meta.name} at 0x{segment_meta.offset.str}"
+            )
+            segment_meta.end = functions[-1]
+            segments.append(segment_meta)
+            functions.clear()
+            segment_meta = SimpleNamespace(
+                name=None,
+                start=current_function,
+                end=None,
+                asm_dir=asm_dir,
+                offset=None,
+                allow=None,
+            )
+            if offset := decomp_utils.get_symbol_offset(ovl_config, current_function):
+                segment_meta.offset = SimpleNamespace(int=offset)
+                segment_meta.offset.str = f"{segment_meta.offset.int:X}"
+            else:
+                asm_path = (
+                    Path("asm") / ovl_config.version / asm_dir / f"{current_function}.s"
+                )
+                asm_text = asm_path.read_text()
+                if first_offset := re.search(
+                    RE_TEMPLATES.asm_symbol_offset.substitute(
+                        symbol_name=current_function
+                    ),
+                    asm_text,
+                ):
+                    segment_meta.offset = SimpleNamespace(str=first_offset.group(1))
+                    segment_meta.offset.int = int(segment_meta.offset.str, 16)
             functions.append(current_function)
+        else:
+            functions.append(current_function)        
 
     if segment_meta and segment_meta not in segments:
         # Todo: Handle this without duplicating the code from the loop, if possible
-        if len(functions) == 1:
+        if not segment_meta.name and len(functions) == 1:
             # Todo: Only change name if it isn't a defined segment
             segment_meta.name = f'{ovl_config.segment_prefix}{RE_PATTERNS.camel_case.sub(r"\1_\2", functions[0]).lower().replace("entity", "e")}'
         logger.debug(
@@ -308,8 +349,8 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
         check_paths = tuple(x.path for x in check_funcs_by_op_hash[check_op_hash])
         if ref_paths and check_paths:
             ref_names = tuple(
-                RE_PATTERNS.symbol_ovl_name_prefix.sub(ovl_name.upper(), func.stem)
-                for func in ref_paths
+                sorted((RE_PATTERNS.symbol_ovl_name_prefix.sub(ovl_name.upper(), func.stem) for func in ref_paths),
+                       key=lambda x: 0 if re.match(r'^[A-Z0-9]{3,4}', x) else 1 if not x.startswith('func_') else 2)
             )
             check_names = tuple(func.stem for func in check_paths)
             matches.add((ref_paths, ref_names, check_paths, check_names))
@@ -651,7 +692,7 @@ def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
 
 def parse_entity_table(data_file_text, ovl_name, entity_table_symbol):
     entity_table = [
-        "EntityUnkBreakable",
+        f"{ovl_name.upper()}_EntityBreakable",
         "EntityExplosion",
         "EntityPrizeDrop",
         "EntityDamageDisplay",
@@ -994,18 +1035,22 @@ def main(args):
             )
 
 
-        if pStObjLayoutHorizontal_address and not entity_table_symbol:
+        if not entity_table_symbol:
             spinner.message = f"finding the entity table"
             # Todo: Find a less complicated way to handle this
             end_of_header = first_data_text.find(".size")
-            pStObjLayoutHorizontal_index = first_data_text.find(
-                f"{pStObjLayoutHorizontal_address:08X}", end_of_header
-            )
+            if pStObjLayoutHorizontal_address:
+                start_index = first_data_text.find(
+                    f"{pStObjLayoutHorizontal_address:08X}", end_of_header
+                )
+            else:
+                start_index = end_of_header
+
             first_entity_index = first_data_text.find(
-                " func", pStObjLayoutHorizontal_index
+                " func_", start_index
             )
             entity_table_index = first_data_text.rfind(
-                "glabel", pStObjLayoutHorizontal_index, first_entity_index
+                "glabel", start_index, first_entity_index
             )
             entity_table_symbol = (
                 first_data_text[entity_table_index:first_entity_index]
@@ -1013,6 +1058,11 @@ def main(args):
                 .split()[1]
             )
 
+    if not pStObjLayoutHorizontal_address:
+        logger.warning("No address for found for pStObjLayoutHorizontal, starting at end of header")
+
+    with decomp_utils.Spinner(message=f"gathering initial symbols") as spinner:
+    
         if (
             not ovl_config.name.startswith("w0_")
             and not ovl_config.name.startswith("w1_")

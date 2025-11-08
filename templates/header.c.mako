@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "${ovl_header_path}"
+% if header_syms[7] != "NULL":
+#include "../pfn_entity_update.h"
+% endif
 <%
 if len(header_syms) <= 12:
     overlay_type = "AbbreviatedOverlay"
@@ -13,7 +16,6 @@ else:
 extern RoomHeader OVL_EXPORT(rooms)[];
 extern SpriteParts* OVL_EXPORT(spriteBanks)[];
 extern u_long* OVL_EXPORT(cluts)[];
-extern LayoutEntity* ${header_syms[7]}[];
 extern RoomDef OVL_EXPORT(rooms_layers)[];
 extern GfxBank* OVL_EXPORT(gfxBanks)[];
 void UpdateStageEntities(void);
