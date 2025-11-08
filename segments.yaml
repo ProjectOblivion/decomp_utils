@@ -41,9 +41,8 @@ e_particles:
   end: EntityEnemyBlood
 e_collect:
   start:
-    - func_psp_0923C390
-    - BlitChar
     - PrizeDropFall
+    - BlitChar
   end: EntityMessageBox
 e_room_fg:
   start: EntityRoomForeground
