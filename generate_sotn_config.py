@@ -55,31 +55,35 @@ def get_known_starts(
     known_segments = []
     # Todo: Simplify this logic
     for label, values in segments_config.items():
-        if isinstance(values["start"], str):
-            starts = [values["start"]]
-        elif isinstance(values["start"], list):
-            starts = values["start"]
-        else:
+        if not values:
             continue
 
-        if "end" in values and isinstance(values["end"], str):
-            end = values["end"]
-        elif "allow" not in values:
-            end = starts[0]
-        elif isinstance(values["allow"], list):
-            end = ""
-        else:
-            continue
+        if "ovl" not in values or ovl_name in values["ovl"]:
+            if isinstance(values["start"], str):
+                starts = [values["start"]]
+            elif isinstance(values["start"], list):
+                starts = values["start"]
+            else:
+                continue
 
-        known_segments.extend(
-            SimpleNamespace(
-                name=values.get("name", label).replace("${prefix}", ovl_name.upper()),
-                start=start.replace("${prefix}", ovl_name.upper()),
-                end=end.replace("${prefix}", ovl_name.upper()),
-                allow=tuple(v.replace("${prefix}", ovl_name.upper()) for v in values.get("allow", [])) or None
+            if "end" in values and isinstance(values["end"], str):
+                end = values["end"]
+            elif "allow" not in values:
+                end = starts[0]
+            elif isinstance(values["allow"], list):
+                end = ""
+            else:
+                continue
+
+            known_segments.extend(
+                SimpleNamespace(
+                    name=values.get("name", label).replace("${prefix}", ovl_name.upper()),
+                    start=start.replace("${prefix}", ovl_name.upper()),
+                    end=end.replace("${prefix}", ovl_name.upper()),
+                    allow=tuple(v.replace("${prefix}", ovl_name.upper()) for v in values.get("allow", [])) or None
+                )
+                for start in starts
             )
-            for start in starts
-        )
     return {x.start: x for x in known_segments}
 
 
@@ -1031,18 +1035,22 @@ def main(args):
             )
 
 
-        if pStObjLayoutHorizontal_address and not entity_table_symbol:
+        if not entity_table_symbol:
             spinner.message = f"finding the entity table"
             # Todo: Find a less complicated way to handle this
             end_of_header = first_data_text.find(".size")
-            pStObjLayoutHorizontal_index = first_data_text.find(
-                f"{pStObjLayoutHorizontal_address:08X}", end_of_header
-            )
+            if pStObjLayoutHorizontal_address:
+                start_index = first_data_text.find(
+                    f"{pStObjLayoutHorizontal_address:08X}", end_of_header
+                )
+            else:
+                start_index = end_of_header
+
             first_entity_index = first_data_text.find(
-                " func", pStObjLayoutHorizontal_index
+                " func_", start_index
             )
             entity_table_index = first_data_text.rfind(
-                "glabel", pStObjLayoutHorizontal_index, first_entity_index
+                "glabel", start_index, first_entity_index
             )
             entity_table_symbol = (
                 first_data_text[entity_table_index:first_entity_index]
@@ -1050,6 +1058,11 @@ def main(args):
                 .split()[1]
             )
 
+    if not pStObjLayoutHorizontal_address:
+        logger.warning("No address for found for pStObjLayoutHorizontal, starting at end of header")
+
+    with decomp_utils.Spinner(message=f"gathering initial symbols") as spinner:
+    
         if (
             not ovl_config.name.startswith("w0_")
             and not ovl_config.name.startswith("w1_")

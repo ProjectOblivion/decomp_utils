@@ -25,10 +25,15 @@ e_misc:
   end: PlaySfxPositional
 e_stage_name:
   start:
+    - StageNamePopupDissolver
+    - LoadStageNameGraphics
     - EntityStageNamePopup
-    - StageNamePopupHelper
     - func_psp_0923C0C0
-  end: EntityStageNamePopup
+  allow:
+    - StageNamePopupDissolver
+    - LoadStageNameGraphics
+    - EntityStageNamePopup
+    - func_psp_0923C0C0
 e_particles:
   start:
     - EntitySoulStealOrb
@@ -62,26 +67,40 @@ e_warg:
 e_room_bg:
   start: ${prefix}_EntityBackgroundBlock
 e_lock_camera:
-  start: ${prefix}_EntityLockCamera
+  start: 
+    - PlayerIsWithinHitbox
+    - ${prefix}_EntityLockCamera
+  allow: 
+    - PlayerIsWithinHitbox
+    - ${prefix}_EntityLockCamera
 e_venus_weed:
+  ovl: chi
   start: SetupPrimsForEntitySpriteParts
   end: EntityVenusWeedSpike
+e_blue_venus_weed:
+  ovl:
+    - rno3
+    - rno4
+  start: SetupPrimsForEntitySpriteParts
+  allow:
+    - SetupPrimsForEntitySpriteParts
+    - EntityVenusWeed
+    - func_us_801C5850
+    - func_us_801D7940
+    - func_us_801C5F40
+    - func_us_801D8030
+    - EntityVenusWeedDart
+    - EntityVenusWeedSpike
 water_effects:
   start: func_801C4144
   end: EntityWaterDrop
 e_breakable:
-  start: 
-    - EntityBreakable
-    - EntityUnkBreakable
-    - ${prefix}_EntityBreakable
-    - ${prefix}_EntityUnkBreakable
+  start: ${prefix}_EntityBreakable
   allow: 
-    - EntityBreakable
-    - EntityUnkBreakable
-    - EntityBreakableDebris
     - ${prefix}_EntityBreakable
-    - ${prefix}_EntityUnkBreakable
+    - EntityBreakableHelper
     - ${prefix}_EntityBreakableDebris
+    - EntityBreakableDebris
 e_jewel_sword_puzzle:
   start: EntityMermanRockLeftSide
   end: EntityFallingRock2
@@ -114,7 +133,10 @@ e_bat:
   start: EntityBat
 e_skelerang:
   start: EntitySkelerang
-  end: EntitySkelerangUnknown # The end is EntitySkelerangBoomerang in the .h file
+  allow:
+    - EntitySkelerang
+    - EntitySkelerangBoomerang
+    - EntitySkelerangUnknown
 e_sealed_door:
   start:  SealedDoorIsNearPlayer
   end: EntitySealedDoor
@@ -123,11 +145,6 @@ e_mist_door:
   end: EntityMistDoor
 e_clouds:
   start: EntityClouds
-e_cutscene:
-  start:
-    - CutsceneUnk1
-    - DrawCutsceneActorName
-  end: ${prefix}_EntityCutscene
 e_warp_room:
   start: EntityWarpRoom
   end: EntityWarpSmallRocks
@@ -156,15 +173,242 @@ e_stained_glass:
     - StainedGlassRecurseDepth
     - EntityStainedGlass
     - EntityStainedGlassBackground
-e_spectral_sword:
-  start: StepTowards
-  end: EntitySpectralSwordAura
 e_spikes:
   start: EntitySpikesDust
+  end: EntitySpikesDamage
+e_flea_man:
+  start: CheckFieldCollisionY
+  allow: 
+    - CheckFieldCollisionY
+    - UpdateFacingDirection
+    - EntityFleaMan
+e_medusa_head:
+  start: EntityMedusaHeadSpawner
   allow:
-    - EntitySpikesDust
-    - EntitySpikesParts
-    - SpikesBreak
-    - SpikesApplyDamage
-    - EntitySpikes
-    - EntitySpikesDamage
+    - EntityMedusaHeadSpawner
+    - EntityMedusaHeadYellow
+    - EntityMedusaHeadBlue
+e_spectral_sword:
+  start: StepTowards
+  ovl: rdai
+  allow: 
+    - StepTowards
+    - func_us_801C0C44
+    - EntitySpectralSwordAura
+    - func_us_801C17E8
+e_lesser_demon:
+  start: func_us_801BC51C
+  allow:
+    - func_us_801BC51C
+    - func_us_801BC6CC
+    - EntityLesserDemonSpit
+    - func_us_801BCE4C
+    - func_us_801BD13C
+    - func_us_801BD3D4
+    - func_us_801BD7D0
+    - func_us_801BDB94
+    - func_us_801BDE28
+    - func_us_801BE550
+    - EntityLesserDemon
+    - func_us_801BF7B0
+e_killer_fish:
+  start: EntityKillerFish
+  allow:
+    - EntityKillerFish
+    - EntityKillerFishDeathPuff
+    - EntityWargExplosionPuffTransparent
+e_gurkha:
+  start: func_801CF778
+  allow:
+    - func_801CF778
+    - func_801CF7A0
+    - EntityGurkha
+    - EntityGurkhaWeapon
+e_blade:
+  start: func_801D0A00
+  allow:
+    - func_801D0B40
+    - func_801D0B78
+    - EntityBlade
+    - EntityBladeWeapon
+e_hammer:
+  start: func_801CE4CC
+  allow:
+    - func_801CE4CC
+    - EntityHammer
+    - EntityGurkhaBodyParts
+    - EntityHammerWeapon
+giantbro_helpers:
+  start: func_801CD658
+  allow:
+    - func_801CD658
+    - func_801CD734
+    - func_801CD78C
+    - polarPlacePart
+    - func_801CD91C
+    - func_801CDA14
+    - func_801CDA6C
+    - func_801CDAC8
+    - func_801CDC80
+    - func_801CDD00
+    - func_801CDD80
+    - func_801CDE10
+    - polarPlacePartsWithAngvel
+    - func_801CDF1C
+    - func_801CDFD8
+e_salem_witch:
+  ovl: rnz0
+  start: SalemWitchTrySpawnShadow
+  allow:
+    - SalemWitchTrySpawnShadow
+    - EntitySalemWitch
+    - EntitySalemWitchGlow
+    - EntitySalemWitchCurse
+    - EntitySalemWitchTriboltLaunch
+    - EntitySalemWitchTriboltProjectile
+e_cloaked_knight:
+  ovl:
+    - nz1
+    - rnz1
+  start: StepTowards
+  allow: 
+    - StepTowards
+    - func_us_801BBC0C
+    - func_us_801BC4C8
+    - func_us_801BC5F8
+    - func_us_801BC71C
+e_gremlin:
+  start: EntityGremlin
+  allow:
+    - EntityGremlin
+    - EntityGremlinEffect
+    - EntityGremlinFire
+e_flea_armor:
+  start: EntityFleaArmor
+  allow:
+    - EntityFleaArmor
+    - func_us_801BFC60
+e_owl_knight:
+  start: EntityOwl
+  allow:
+    - EntityOwl
+    - OwlKnightDeathAnim
+    - EntityOwlKnight
+    - EntityOwlKnightSword
+    - EntityOwlTarget
+e_skull_lord:
+  start: EntitySkullLord
+  allow:
+    - EntitySkullLord
+    - EntitySkullLordOutline
+    - EntitySkullLordFlames
+    - EntitySkullLordPieces
+e_ctulhu:
+  start: EntityCtulhu
+    - EntityCtulhu
+    - EntityCtulhuFireball
+    - EntityCtulhuIceShockwave
+    - EntityCtulhuDeath
+e_plate_lord:
+  start: func_801CD78C
+  allow:
+    - func_801CD78C
+    - func_us_801D2424
+    - func_us_801D26CC
+    - func_us_801D274C
+    - func_us_801D27C4
+    - StepTowards
+    - EntityPlateLord
+    - func_us_801D4324
+    - func_us_801D44A0
+    - func_us_801D4AA4
+    - func_us_801D4CAC
+e_bone_musket:
+  start: EntityBoneMusket
+    - EntityBoneMusket
+    - func_us_801CF298
+e_slogra:
+  start: EntitySlograSpecialCollision
+  allow:
+    - EntitySlograSpecialCollision
+    - EntitySlogra
+    - EntitySlograSpear
+    - EntitySlograSpearProjectile
+e_gaibon:
+  start: EntityGaibon
+  allow:
+    - EntityGaibon
+    - func_801B69E8
+    - EntitySmallGaibonProjectile
+    - EntityLargeGaibonProjectile
+e_bone_scimitar:
+  start: BoneScimitarAttackCheck
+  allow:
+    - BoneScimitarAttackCheck
+    - EntityBoneScimitar
+    - EntityBoneScimitarParts
+    - EntityBoneHalberdParts
+e_blood_skeleton:
+  start: EntityBloodSkeleton
+e_cutscene_dialogue:
+  start:
+    - GetLang
+    - DrawCutsceneActorName
+    - CutsceneUnk1
+  end: 
+    - ${prefix}_EntityCutsceneDialogue
+    - ${prefix}_EntityCutscene
+e_harpy:
+  start: 
+    - EntityHarpy
+  allow:
+    - EntityHarpy
+    - EntityHarpyDagger
+    - EntityHarpyFlame
+    - EntityHarpyKick
+    - EntityHarpyFeather
+e_sword_lord:
+  start: func_us_801BC9BC
+  allow:
+    - func_us_801BC9BC
+    - EntitySwordLord
+    - func_us_801BD970
+e_armor_lord:
+  start: func_us_801D1184
+  allow:
+    - func_us_801D1184
+    - func_us_801D1388
+    - EntityArmorLordFireWave
+    - func_us_801D1A94
+    - func_us_801D1A9C
+    - func_us_801D1DAC
+    - EntityArmorLord
+    - func_us_801D348C
+    - func_us_801D3700
+e_thornweed_corpseweed:
+  start: EntityThornweed
+  allow:
+    - EntityThornweed
+    - EntityCorpseweed
+    - EntityCorpseweedProjectile
+e_hunting_girl:
+  start: HuntingGirlDrawAttack
+  allow:
+    - HuntingGirlDrawAttack
+    - HuntingGirlDrawSpirit
+    - HuntingGirlTransitionToStep
+    - EntityHuntingGirl
+    - EntityHuntingGirlAttack
+e_grave_keeper:
+  start: SpawnDustParticles
+  allow:
+    - SpawnDustParticles
+    - func_us_801D12E0
+    - EntityGraveKeeper
+    - EntityGraveKeeperHitbox
+e_valhalla_knight:
+  start: EntityValhallaKnight
+  allow:
+    - EntityValhallaKnight
+    - func_us_801C8954
+    - func_us_801C8AAC

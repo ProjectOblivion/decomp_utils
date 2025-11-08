@@ -9,6 +9,7 @@
 % endif
 
 #define OVL_EXPORT(x) ${ovl_name.upper()}_##x
+#define STAGE_IS_${ovl_name.upper()}
 % if e_inits != None and ovl_type != "weapon":
 <%
 maxlen = max(len(e_init) for function, e_init in e_inits) + 1
