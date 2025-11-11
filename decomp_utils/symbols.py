@@ -8,7 +8,8 @@ from collections import namedtuple
 
 __all__ = [
     "sort_symbols_files",
-    "symbol_sort",
+    "sort_symbols_file",
+    "symbols_sort",
     "remove_orphans_from_config",
     "add_symbols",
     "get_symbol_offset",
@@ -24,16 +25,18 @@ logger = get_logger()
 
 def sort_symbols_files(symbols_files):
     # Only write if there are changes
-    for symbol_file in symbols_files:
-        symbol_lines = symbol_file.read_text().splitlines()
-        if symbol_lines:
-            new_lines = sorted(symbol_lines, key=symbol_sort)
-            if new_lines != symbol_lines:
-                symbol_file.write_text(f"{"\n".join(new_lines)}\n")
+    for symbols_file in symbols_files:
+        sort_symbols_file(symbols_file)
 
+def sort_symbols_file(symbols_file):
+    symbol_lines = symbols_file.read_text().splitlines()
+    if symbol_lines:
+        new_lines = sorted(symbol_lines, key=symbols_sort)
+        if new_lines != symbol_lines:
+            symbols_file.write_text(f"{"\n".join(new_lines)}\n")
 
 # Intended to be used with .sort, .max, and .min methods for interables of symbols in the format of symbol = address; //ignores comments
-def symbol_sort(symbol_line):
+def symbols_sort(symbol_line):
     # First splits by '=' to get address section, then splits by ';' to strip the ';' and any comments
     return int(symbol_line.split("=")[1].split(";")[0].strip(), 16)
 
@@ -91,7 +94,7 @@ def remove_orphans_from_config(config_path):
             break
 
     if len(new_lines) < len(symbols):
-        symbol_file.write_text(f"{"\n".join(sorted(new_lines, key=symbol_sort))}\n")
+        symbol_file.write_text(f"{"\n".join(sorted(new_lines, key=symbols_sort))}\n")
 
 
 def add_symbols(ovl_config, add_symbols):

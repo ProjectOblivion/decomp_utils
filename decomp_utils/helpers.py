@@ -35,19 +35,20 @@ __all__ = [
     "bar",
     "splat_split",
     "build",
+    "git"
 ]
 
-RE_STRINGS = namedtuple("ReStrings", ["psp_entity_table", "psp_export_table"])(
+RE_STRINGS = namedtuple("ReStrings", ["psp_entity_table", "psp_ovl_header"])(
     psp_entity_table=r"""
         \s+/\*\s[A-F0-9]{1,5}(?:\s[A-F0-9]{8}){2}\s\*/\s+lui\s+\$v1,\s+%hi\((?P<entity>[A-Za-z0-9_]+)\)\n
         .*\n
         \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\sC708023C\s\*/.*\n
         \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s30BC43AC\s\*/.*\n
     """,
-    psp_export_table=r"""
+    psp_ovl_header=r"""
         \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s1D09043C\s\*/.*\n
         \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\s38F78424\s\*/.*\n
-        \s+/\*\s[A-F0-9]{1,5}(?:\s[A-F0-9]{8}){2}\s\*/\s+lui\s+\$a1,\s+%hi\((?P<export>[A-Za-z0-9_]+)\)\n
+        \s+/\*\s[A-F0-9]{1,5}(?:\s[A-F0-9]{8}){2}\s\*/\s+lui\s+\$a1,\s+%hi\((?P<header>[A-Za-z0-9_]+)\)\n
         (?:.*\n){2}
         \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\sE127240E\s\*/.*\n
     """,
@@ -83,8 +84,8 @@ RE_PATTERNS = namedtuple(
         "camel_case",
         "symbol_ovl_name_prefix",
         "psp_entity_table_pattern",
-        "psp_export_table_pattern",
-        "psp_entity_export_table_pattern",
+        "psp_ovl_header_pattern",
+        "psp_ovl_header_entity_table_pattern",
         "symbol_line_pattern",
         "init_room_entities_symbol_pattern",
         "ref_pattern",
@@ -148,9 +149,9 @@ RE_PATTERNS = namedtuple(
     camel_case=re.compile(r"([A-Za-z])([A-Z][a-z])"),
     symbol_ovl_name_prefix=re.compile(r"^[^U][A-Z0-9]{2,3}"),
     psp_entity_table_pattern=re.compile(RE_STRINGS.psp_entity_table, re.VERBOSE),
-    psp_export_table_pattern=re.compile(RE_STRINGS.psp_export_table, re.VERBOSE),
-    psp_entity_export_table_pattern=re.compile(
-        rf"{RE_STRINGS.psp_entity_table}(?:.*\n)+{RE_STRINGS.psp_export_table}",
+    psp_ovl_header_pattern=re.compile(RE_STRINGS.psp_ovl_header, re.VERBOSE),
+    psp_ovl_header_entity_table_pattern=re.compile(
+        rf"{RE_STRINGS.psp_entity_table}(?:.*\n)+{RE_STRINGS.psp_ovl_header}",
         re.VERBOSE,
     ),
     symbol_line_pattern=re.compile(
@@ -532,11 +533,21 @@ def splat_split(config_path, disassemble_all=True):
             verbose=False,
             use_cache=False,
             skip_version_check=False,
-            stdout_only=True,
             disassemble_all=disassemble_all,
         )
     return output.getvalue()
 
+def git(cmd, path):
+    if isinstance(path, list):
+        path = " ".join(f"{x}" for x in path)
+
+    match cmd:
+        case "add":
+            shell(f"git add {path}")
+        case "clean":
+            shell(f"git clean -fdx {path}")
+        case "reset":
+            shell(f"git checkout {path}")
 
 def mipsmatch(version, ref_ovls, bin_path):
     segments = []
