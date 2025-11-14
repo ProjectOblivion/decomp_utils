@@ -147,7 +147,7 @@ RE_PATTERNS = namedtuple(
     ),
     include_rodata=re.compile(r'INCLUDE_RODATA\("[A-Za-z0-9/_]+",\s?(?P<name>\w+)\);'),
     camel_case=re.compile(r"([A-Za-z])([A-Z][a-z])"),
-    symbol_ovl_name_prefix=re.compile(r"^[^U][A-Z0-9]{2,3}"),
+    symbol_ovl_name_prefix=re.compile(r"^[^U][A-Z0-9]{2,3}_"),
     psp_entity_table_pattern=re.compile(RE_STRINGS.psp_entity_table, re.VERBOSE),
     psp_ovl_header_pattern=re.compile(RE_STRINGS.psp_ovl_header, re.VERBOSE),
     psp_ovl_header_entity_table_pattern=re.compile(
@@ -160,7 +160,7 @@ RE_PATTERNS = namedtuple(
     init_room_entities_symbol_pattern=re.compile(
         r"\s+/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s[0-9A-F]{8}\s\*/\s+[a-z]{1,5}[ \t]*\$\w+,\s%hi\(D_(?:\w+_)?(?P<address>[A-F0-9]{8})\)\s*"
     ),
-    ref_pattern=re.compile(r"splat\.\w+\.(?P<prefix>st|bo)?(?P<ref_ovl>\w+)\.yaml"),
+    ref_pattern=re.compile(r"splat\.\w+\.(?P<prefix>st|bo)(?P<ref_ovl>\w+)\.yaml"),
     cross_ref_name_pattern=re.compile(r"lui\s+.+?%hi\(((?:[A-Z]|g_|func_)\w+)\)"),
     cross_ref_address_pattern=re.compile(
         r"lui\s+.+?%hi\((?:D_|func_)(?:\w+_)?([A-F0-9]{8})\)"
@@ -194,13 +194,15 @@ class TTY(StrEnum):
 class SotnDecompConsoleFormatter(logging.Formatter):
     """Formats log entries with color-coded severities"""
 
-    message_format: str = "[%(levelname)s:%(filename)s:%(lineno)d] %(message)s"
+    format_preamble: str = f"\r{TTY.CLEAR}"
+    source_id: str = "[%(levelname)s:%(filename)s:%(lineno)d] "
+    message_format: str = "%(message)s"
     formats: dict[int, str] = {
-        logging.DEBUG: f"{TTY.DARK_GREY}{message_format}{TTY.RESET}",
-        logging.INFO: f"{TTY.GREY}{message_format}{TTY.RESET}",
-        logging.WARNING: f"{TTY.YELLOW}{message_format}{TTY.RESET}",
-        logging.ERROR: f"{TTY.RED}{message_format}{TTY.RESET}",
-        logging.CRITICAL: f"{TTY.RED}{TTY.BOLD}{message_format}{TTY.RESET}",
+        logging.DEBUG: f"{TTY.DARK_GREY}{format_preamble}{source_id}{message_format}{TTY.RESET}",
+        logging.INFO: f"{TTY.GREY}{format_preamble}{message_format}{TTY.RESET}",
+        logging.WARNING: f"{TTY.YELLOW}{format_preamble}{message_format}{TTY.RESET}",
+        logging.ERROR: f"{TTY.RED}{format_preamble}{source_id}{message_format}{TTY.RESET}",
+        logging.CRITICAL: f"{TTY.RED}{TTY.BOLD}{format_preamble}{source_id}{message_format}{TTY.RESET}",
     }
 
     def format(self, message: LogRecord) -> str:
@@ -294,6 +296,38 @@ class Spinner:
             return False
 
 
+def get_logger(
+    file_level=logging.INFO,
+    console_level=logging.WARNING,
+    stdout=True,
+    filename="tools/decomp_utils/logs/sotn_log.json",
+):
+    """Simple wrapper function to make it easier to set up and use custom formatting"""
+    logger = logging.getLogger(__name__.strip("_"))
+    logger.setLevel(logging.INFO)
+
+    if filename and not any(
+        isinstance(h, logging.FileHandler)
+        and h.baseFilename == Path(filename).resolve()
+        for h in logger.handlers
+    ):
+        file_handler = logging.FileHandler(filename, mode="a")
+        file_handler.setLevel(file_level)
+        file_handler.setFormatter(SotnDecompLogFormatter())
+        logger.addHandler(file_handler)
+
+    if stdout and not any(
+        isinstance(h, logging.StreamHandler)
+        and getattr(h, "stream", None) in (sys.stdout, sys.stderr)
+        for h in logger.handlers
+    ):
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(console_level)
+        console_handler.setFormatter(SotnDecompConsoleFormatter())
+        logger.addHandler(console_handler)
+
+    return logger
+
 def get_repo_root(current_path: Path = Path(__file__).resolve()) -> Path:
     """Attempts to find the root of the repo by stepping backward from directory containing __file__"""
     while current_path != current_path.root:
@@ -318,45 +352,13 @@ def get_argparser(description):
     return arg_parser
 
 
-def get_logger(
-    file_level=logging.INFO,
-    console_level=logging.WARNING,
-    stdout=True,
-    filename="tools/decomp_utils/logs/sotn_log.json",
-):
-    """Simple wrapper function to make it easier to set up and use custom formatting"""
-    logger = logging.getLogger(__name__.strip("_"))
-    logger.setLevel(logging.INFO)
-
-    if filename and not any(
-        isinstance(h, logging.FileHandler)
-        and h.baseFilename == os.path.abspath(filename)
-        for h in logger.handlers
-    ):
-        file_handler = logging.FileHandler(filename, mode="a")
-        file_handler.setLevel(file_level)
-        file_handler.setFormatter(SotnDecompLogFormatter())
-        logger.addHandler(file_handler)
-
-    if stdout and not any(
-        isinstance(h, logging.StreamHandler)
-        and getattr(h, "stream", None) in (sys.stdout, sys.stderr)
-        for h in logger.handlers
-    ):
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(console_level)
-        console_handler.setFormatter(SotnDecompConsoleFormatter())
-        logger.addHandler(console_handler)
-
-    return logger
-
-
-def shell(cmd, *, version="us"):
+def shell(cmd, env_vars = {}, version="us"):
     """Executes a string as a shell command and returns its output"""
     # Todo: Add both list and string handling
     env = os.environ.copy()
     # Ensure the correct VERSION is passed
     env["VERSION"] = version
+    env.update(env_vars)
     cmd_output = run(cmd.split(), env=env, capture_output=True)
     if cmd_output.returncode != 0:
         logger = get_logger()
@@ -501,11 +503,13 @@ def bar(score, width=7):
     return bar
 
 
-def build(targets=[], plan=True, build=True, version="us"):
+def build(targets=[], plan=True, dynamic_syms=False, build=True, version="us"):
+    env_vars = {"FORCE_SYMBOLS": ""} if dynamic_syms else {}
     if plan:
-        shell(f"python3 tools/builds/gen.py", version=version)
+        Path(f"build/{version}/").mkdir(parents=True, exist_ok=True)
+        shell(f"python3 tools/builds/gen.py build/{version}/build.ninja", env_vars=env_vars, version=version)
     if build:
-        return shell(f'ninja {" ".join(f"{x}" for x in targets)}', version=version)
+        return shell(f'ninja -f build/{version}/build.ninja {" ".join(f"{x}" for x in targets)}', version=version)
 
 
 def splat_split(config_path, disassemble_all=True):
@@ -513,11 +517,6 @@ def splat_split(config_path, disassemble_all=True):
         r"disassemble_all:\s*(?:true|yes)", Path(config_path).read_text(), re.IGNORECASE
     ):
         disassemble_all = False
-    # Keeping this here until I'm satisfied with using splat as a module
-    # return shell(
-    #    f"splat split {"--disassemble-all " if disassemble_all else ""}{config_path}"
-    # )
-    # Create a StringIO buffer to capture stdout and stderr
     output = StringIO()
     with contextlib.redirect_stdout(output):
         # Splat has a bug in versions prior to 0.32.3 where it will throw an exception if disassemble_all is True in the config and also passed as True
@@ -538,7 +537,7 @@ def splat_split(config_path, disassemble_all=True):
     return output.getvalue()
 
 def git(cmd, path):
-    if isinstance(path, list):
+    if isinstance(path, (list,tuple)):
         path = " ".join(f"{x}" for x in path)
 
     match cmd:

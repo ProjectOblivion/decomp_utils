@@ -14,7 +14,7 @@ __all__ = [
     "add_symbols",
     "get_symbol_offset",
     "get_symbols",
-    "force_symbols",
+    "extract_dynamic_symbols",
     "Symbol",
 ]
 
@@ -97,6 +97,8 @@ def remove_orphans_from_config(config_path):
         symbol_file.write_text(f"{"\n".join(sorted(new_lines, key=symbols_sort))}\n")
 
 
+# TODO: add function to remove conflicts and unneeded symbols from symbols files
+
 def add_symbols(ovl_config, add_symbols):
     # Todo: Adjust this to be able to handle a config passed as a path
     symbols_path = ovl_config.ovl_symbol_addrs_path
@@ -165,31 +167,45 @@ def get_symbol_offset(ovl_config, symbol_name):
         return None
 
 
-def force_symbols(elf_files, version="us"):
+def extract_dynamic_symbols(elf_files, path_prefix = "", version="us"):
     # Excluding pspeu dra because it doesn't play nice with forced symbols currently
     for elf_file in (x for x in elf_files if version != "pspeu" or "dra" not in x.name):
+        config_path = Path(f"config/splat.{version}.{elf_file.stem}.yaml")
         config = yaml.safe_load(
-            Path(f"config/splat.{version}.{elf_file.stem}.yaml").open()
+            config_path.open()
         )
-        symbols_path = next(
-            (
-                Path(path)
-                for path in config["options"]["symbol_addrs_path"]
-                if elf_file.stem in path
-            ),
-            None,
-        )
-        if symbols_path.exists():
-            excluded_starts = {"LM", "__pad"}
-            excluded_ends = {"_START", "_END", "_VRAM"}
-            symbols_lines = [
-                f"{symbol.name} = 0x{symbol.address:08X}; // allow_duplicated:True"
-                for symbol in get_symbols(elf_file, excluded_starts, excluded_ends)
-            ]
-            symbols_path.write_text(f"{"\n".join(symbols_lines)}\n")
-        else:
-            logger.warning(f"No symbols file found for {elf_file}, skipping")
+        dynamic_syms_path = Path(f"{path_prefix}{elf_file.stem}.txt")
+        dynamic_syms_path.parent.mkdir(parents=True, exist_ok=True)
+        dynamic_config_path = dynamic_syms_path.parent.joinpath(f"{config_path.name}.dyn_syms")
+        dynamic_config_path.write_bytes(
+        yaml.dump(
+                {"options": {"symbol_addrs_path": [dynamic_syms_path]}},
+                Dumper=yaml.IndentDumper,
+                encoding="utf-8",
+                sort_keys=False,
+            ))
+        excluded_starts = {"LM", "__pad"}
+        excluded_ends = {"_START", "_END", "_VRAM", "_data__s"}
+        defined_symbols = get_defined_symbols(config["options"]["symbol_addrs_path"])
+        defined_sym_by_address = {symbol.address: symbol.name for symbol in defined_symbols}
+        dynamic_symbols = []
+        for symbol in get_symbols(elf_file, excluded_starts, excluded_ends):
+            if symbol not in defined_symbols and symbol.address in defined_sym_by_address:
+                logger.warning(f"Symbol conflict detected in {elf_file}! Address 0x{symbol.address:08X} built as {symbol.name}, but defined as {defined_sym_by_address[symbol.address]}") 
+            elif symbol not in defined_symbols:
+                dynamic_symbols.append(symbol)
+        symbols_lines = tuple(f"{symbol.name} = 0x{symbol.address:08X}; // allow_duplicated:True" for symbol in dynamic_symbols)
+        dynamic_syms_path.write_text(f"{'\n'.join(symbols_lines)}\n")
 
+def get_defined_symbols(symbols_files):
+    if not isinstance(symbols_files, (list, tuple)):
+        symbols_files = (symbols_files, )
+    split_lines = tuple(line.split("=")
+        for file in symbols_files
+        for line in Path(file).read_text().splitlines()
+        if line
+    )
+    return tuple(Symbol(line[0].strip(), int(line[1].split(";")[0].strip(), 16)) for line in split_lines)
 
 def get_symbols(
     file_path,

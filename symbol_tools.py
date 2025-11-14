@@ -45,8 +45,8 @@ def main(args):
                         f"{symbol.name} = 0x{symbol.address:08X}; // allow_duplicated:True"
                     )
         case "force":
-            decomp_utils.force_symbols(
-                args.version, tuple(Path(x) for x in args.elf_file)
+            decomp_utils.extract_dynamic_symbols(
+                tuple(Path(x) for x in args.elf_file), f"build/{args.version}/config/dyn_syms.", version=args.version
             )
         case _:
             print("Unknown command. Use --help for usage information.")

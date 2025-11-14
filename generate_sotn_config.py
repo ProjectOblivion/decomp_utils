@@ -4,6 +4,7 @@ import argparse
 import os
 import re
 import shutil
+import time
 import decomp_utils
 from decomp_utils import sotn_config
 import hashlib
@@ -117,26 +118,27 @@ def add_undefined_symbol(version, symbol, address):
         undefined_syms.write_text("\n".join(new_lines))
         decomp_utils.git("add", undefined_syms)
 
-def main(args):
+def main(args, start_time):
     logger.info("Starting...")
-    with decomp_utils.Spinner(message="generating config"):
+    with decomp_utils.Spinner(message=f"generating config for overlay {args.overlay.upper()}") as spinner:
         ovl_config = decomp_utils.SotnOverlayConfig(args.overlay, args.version)
+        if ovl_config.config_path.exists() and not args.clean:
+            logger.error(
+                f"Configuration {ovl_config.name} already exists.  Use the --clean option to remove all existing overlay artifacts and re-extract the overlay."
+            )
+            raise SystemExit
 
-    if ovl_config.config_path.exists() and not args.clean:
-        logger.error(
-            f"A configuration for {ovl_config.name} already exists.  Use the --clean option to remove all existing overlay artifacts and re-extract the overlay."
-        )
-        raise SystemExit
-    if args.clean:
-        sotn_config.clean_artifacts(ovl_config)
+        sotn_config.clean_artifacts(ovl_config, args.clean, spinner)
 
-    with decomp_utils.Spinner(message="creating initial files") as spinner:
+### group change ###
+        spinner.message=f"creating initial files for overlay {args.overlay.upper()}"
         ovl_config.write_config()
         for symbol_path in ovl_config.symbol_addrs_path:
             symbol_path.touch(exist_ok=True)
         
         create_ovl_include(ovl_config)
 
+### group change ###
         spinner.message = f"adding sha1 hashes to check file"
         add_sha1_hashes(ovl_config)
 
@@ -146,15 +148,18 @@ def main(args):
         elif ovl_config.name == "bo4" and ovl_config.platform == "psp":
             add_undefined_symbol(ovl_config.version, "g_Clut", 0x091F5DF8)
 
-        spinner.message = f"performing initial split with {ovl_config.config_path}"
+### group change ###
+        spinner.message = f"performing initial split using config {ovl_config.config_path}"
         decomp_utils.splat_split(ovl_config.config_path, ovl_config.disassemble_all)
 
+### group change ###
         spinner.message = f"adjusting initial include asm paths"
         src_text = ovl_config.first_src_file.read_text()
         adjusted_text = src_text.replace(f'("asm/{args.version}/', '("')
         ovl_config.first_src_file.write_text(adjusted_text)
 
-        spinner.message = f"generating new build plan including {ovl_config.name.upper()}"
+### group change ###
+        spinner.message = f"generating new {ovl_config.version} build plan including {ovl_config.name.upper()}"
         decomp_utils.build(build=False, version=ovl_config.version)
 
     with decomp_utils.Spinner(message=f"gathering initial symbols") as spinner:
@@ -162,6 +167,7 @@ def main(args):
         # TODO: rename this
         stage_init = {}
         if ovl_config.platform == "psp":
+### group change ###
             spinner.message = f"parsing the psp stage init for symbols"
             asm_path = ovl_config.asm_path.joinpath(ovl_config.nonmatchings_path)
             stage_init, entity_table = sotn_config.parse_psp_stage_init(asm_path)
@@ -175,6 +181,7 @@ def main(args):
             if stage_init.get("name"):
                 symexport_lines.append(f"EXTERN({stage_init.get("name")});")
             if not ovl_config.symexport_path.exists():
+### group change ###
                 spinner.message = "creating symexport file"
                 ovl_config.symexport_path.write_text("\n".join(symexport_lines))
                 decomp_utils.git("add", ovl_config.symexport_path)
@@ -187,6 +194,7 @@ def main(args):
         first_data_path = ovl_config.asm_path / "data" / f"{first_data_offset:X}.data.s"
         if first_data_path.exists():
             first_data_text = first_data_path.read_text()
+### group change ###
             spinner.message = f"parsing the overlay header for symbols"
             ovl_header, pStObjLayoutHorizontal_address = (
                 sotn_config.parse_ovl_header(
@@ -198,6 +206,7 @@ def main(args):
                 )
             )
             if ovl_config.platform == "psx":
+### group change ###
                 spinner.message = f"finding the entity table"
                 entity_table = find_psx_entity_table(first_data_text, pStObjLayoutHorizontal_address)
         else:
@@ -206,8 +215,10 @@ def main(args):
             entity_table = {}
 
 
-    with decomp_utils.Spinner(message=f"gathering initial symbols") as spinner:
+### group change ###
+        spinner.message=f"gathering initial symbols"
         if entity_table.get("name") and first_data_text:
+### group change ###
             spinner.message = f"parsing the entity table for symbols"
             entity_table["address"], entity_table["symbols"] = sotn_config.parse_entity_table(
                 first_data_text, ovl_config.name, entity_table.get("name")
@@ -229,121 +240,100 @@ def main(args):
             parsed_symbols.append(decomp_utils.Symbol(f"{ovl_config.name.upper()}_Overlay", ovl_header.get("address")))
 
         if parsed_symbols:
+### group change ###
             spinner.message = f"adding {len(parsed_symbols)} parsed symbols and splitting using updated symbols"
             decomp_utils.add_symbols(ovl_config, parsed_symbols)
-            decomp_utils.git("add", [ovl_config.config_path, ovl_config.ovl_symbol_addrs_path])
-            if ovl_config.symexport_path and ovl_config.symexport_path.exists():
-                decomp_utils.git("add", ovl_config.symexport_path)
+            add_files = tuple(f"{x}" for x in [ovl_config.config_path, ovl_config.ovl_symbol_addrs_path, ovl_config.symexport_path] if x and x.exists())
+            decomp_utils.git("add", add_files)
             decomp_utils.git("clean", ovl_config.asm_path)
             decomp_utils.splat_split(ovl_config.config_path)
 
     with decomp_utils.Spinner(
-        message="creating .elf files for extracting reference symbols"
+        message="gathering reference overlays"
     ) as spinner:
-        ref_basenames, ref_ovls = [], []
-        for file in Path("config").iterdir():
-            ref_version = (
-                "pspeu" in file.name
-                if ovl_config.platform == "psp"
-                else "us" in file.name or "hd" in file.name
-            )
+        ref_ovls = []
+        for file in Path("config").glob(f"splat.{ovl_config.version}.*.yaml"):
             # TODO: bin/mipsmatch --output mipsmatch-${ovl}.yaml fingerprint build/us/st${ovl}.map build/us/st${ovl}.elf for each reference overlay
             # Todo: Evaluate whether limiting to stage and non-stage overlays as references makes a practical difference in execution time
             if (
-                ref_version
-                and ovl_config.ovl_type != "weapon"
-                and "main" not in file.name
-                and "weapon" not in file.name
-                and "mad" not in file.name
-                and ovl_config.name not in file.name
-                and file.match("splat.*.yaml")
+                ovl_config.name not in file.name
                 and (match := RE_PATTERNS.ref_pattern.match(file.name))
             ):
-                ref_basenames.append(
-                    f'{match.group("prefix") or ""}{match.group("ref_ovl")}'
-                )
-                ref_ovls.append(match.group("ref_ovl"))
-            elif (
-                ref_version
-                and ovl_config.ovl_type == "weapon"
-                and "weapon" in file.name
-                and ovl_config.name not in file.name
-                and file.match("splat.*.yaml")
-                and (match := RE_PATTERNS.ref_pattern.match(file.name))
-            ):
-                ref_basenames.append(
-                    f'{match.group("prefix") or ""}{match.group("ref_ovl")}'
-                )
-                ref_ovls.append(match.group("ref_ovl"))
+                prefix = match.group("prefix") or ""
+                ref_name = match.group("ref_ovl")
+                ld_path = ovl_config.build_path.joinpath(prefix + ref_name).with_suffix(".ld")
+                ref_ovls.append(SimpleNamespace(prefix=prefix, name=ref_name, ld_path=ld_path))
 
-        ref_lds = tuple(
-            ovl_config.build_path.joinpath(basename).with_suffix(".ld")
-            for basename in ref_basenames
-        )
-        found_elfs = tuple(ovl_config.build_path.glob("*.elf"))
-        missing_elfs = tuple(
-            ld.with_suffix(".elf")
-            for ld in ref_lds
-            if ld.with_suffix(".elf") not in found_elfs
-        )
-        if missing_elfs:
-            decomp_utils.build(missing_elfs, plan=True, version=ovl_config.version)
+        if ref_ovls:
+            ref_lds = tuple(ovl.ld_path for ovl in ref_ovls)
+            found_elfs = tuple(ovl_config.build_path.glob("*.elf"))
+            missing_elfs = tuple(
+                ld.with_suffix(".elf")
+                for ld in ref_lds
+                if ld.with_suffix(".elf") not in found_elfs
+            )
+            if missing_elfs:
+### group change ###
+                spinner.message = f"extracting {len(missing_elfs)} missing reference .elf files"
+                decomp_utils.build(missing_elfs, plan=True, version=ovl_config.version)
 
-    with decomp_utils.Spinner(
-        message=f"extracting symbols from {len(ref_basenames)} reference .elf files"
-    ) as spinner:
-        decomp_utils.force_symbols(
-            tuple(ld.with_suffix(".elf") for ld in ref_lds),
-            version=ovl_config.version,
-        )
+### group change ###
+            spinner.message = "extracting dynamic symbols"
+            [ld.unlink(missing_ok=True) for ld in ref_lds]
+            decomp_utils.extract_dynamic_symbols(
+                tuple(ld.with_suffix(".elf") for ld in ref_lds), f"build/{args.version}/config/extract_syms.", version=ovl_config.version
+            )
 
-        spinner.message = f"disassembling {len(ref_basenames)} reference overlays"
-        decomp_utils.git("clean", [f"asm/{ovl_config.version}/", f"-e {ovl_config.asm_path}"])
-        if ref_basenames:
-            decomp_utils.build(ref_lds, plan=False, version=ovl_config.version)
+            [ld.unlink for ld in ref_lds]
+### group change ###
+            spinner.message = f"disassembling {len(ref_ovls)} reference overlays"
+            decomp_utils.build(ref_lds, dynamic_syms=True, version=ovl_config.version)
 
-        # Removes forced symbols files
-        # Todo: checkout each file instead of the whole dir
-        decomp_utils.git("checkout", "config/")
+### group change ###
+            spinner.message=f"finding files to compare"
+            ref_files, check_files = [], []
+            for dirpath, _, filenames in Path("asm").joinpath(ovl_config.version).walk():
+                if any(ovl.name in dirpath.parts or f"{ovl.name}_psp" in dirpath.parts for ovl in ref_ovls):
+                    ref_files.extend(
+                        dirpath / f
+                        for f in filenames
+                        if not f.startswith(f"func_{ovl_config.version}_")
+                        and not f.startswith("D_")
+                    )
+                if (
+                    ovl_config.name in dirpath.parts
+                    or f"{ovl_config.name}_psp" in dirpath.parts
+                ):
+                    check_files.extend(
+                        dirpath / f
+                        for f in filenames
+                        if f.startswith(f"func_{ovl_config.version}_")
+                    )
+### group change ###
+            spinner.message=f"parsing instructions from {len(check_files)} new files and {len(ref_files)} reference files"
+            parsed_files = SimpleNamespace(
+                ref_files=decomp_utils.parse_files(ref_files),
+                check_files=decomp_utils.parse_files(check_files),
+            )
+        else:
+            parsed_files = None
+### group change ###
+            spinner.message = f"found no reference overlays"            
 
-    with decomp_utils.Spinner(
-        message=f"parsing instructions from reference overlay asm files"
-    ) as spinner:
-        ref_files, check_files = [], []
-        for dirpath, _, filenames in Path("asm").joinpath(ovl_config.version).walk():
-            if any(x in dirpath.parts or f"{x}_psp" in dirpath.parts for x in ref_ovls):
-                ref_files.extend(
-                    dirpath / f
-                    for f in filenames
-                    if not f.startswith(f"func_{ovl_config.version}_")
-                    and not f.startswith("D_")
-                )
-            if (
-                ovl_config.name in dirpath.parts
-                or f"{ovl_config.name}_psp" in dirpath.parts
-            ):
-                check_files.extend(
-                    dirpath / f
-                    for f in filenames
-                    if f.startswith(f"func_{ovl_config.version}_")
-                )
-        parsed = SimpleNamespace(
-            ref_files=decomp_utils.parse_files(ref_files),
-            check_files=decomp_utils.parse_files(check_files),
-        )
-
-    with decomp_utils.Spinner(
-        message="finding symbol names using reference overlays"
-    ) as spinner:
-        matches = sotn_config.find_symbols(
-            parsed, ovl_config.version, ovl_config.name, threshold=0.95
-        )
-        num_symbols = sotn_config.rename_symbols(ovl_config, matches)
-
-    if num_symbols:
+    if parsed_files:
         with decomp_utils.Spinner(
-            message=f"renamed {num_symbols} symbols, splitting again"
-        ):
+            message="searching for similar functions"
+        ) as spinner:
+            matches = sotn_config.find_symbols(
+                parsed_files, ovl_config.version, ovl_config.name, threshold=0.95
+            )
+### group change ###
+            spinner.message = f"Renaming symbols found from {len(matches)} similar functions"
+            num_symbols, unhandled_renames = sotn_config.rename_symbols(ovl_config, matches)
+
+        if num_symbols:
+### group change ###
+            spinner.message=f"renamed {num_symbols} symbols from {len(matches)} similar functions, splitting again"
             decomp_utils.git("clean", ovl_config.asm_path)
             decomp_utils.splat_split(ovl_config.config_path, ovl_config.disassemble_all)
 
@@ -358,6 +348,7 @@ def main(args):
         / f"first_{ovl_config.name}"
         / f"InitRoomEntities.s"
     )
+
     # Sel has an InitRoomEntities function, but the symbols it references are different
     if init_room_entities_path.exists() and ovl_config.name != "sel":
         with decomp_utils.Spinner(
@@ -379,22 +370,23 @@ def main(args):
                 )
 
             if init_room_entities_symbols:
-                spinner.message = f"adding {len(init_room_entities_symbols)} extracted from InitRoomEntities.s"
+### group change ###
+                spinner.message = f"adding {len(init_room_entities_symbols)} symbols extracted from InitRoomEntities.s"
                 decomp_utils.add_symbols(ovl_config, init_room_entities_symbols)
 
     with decomp_utils.Spinner(
         message="looking for functions for cross referencing"
     ) as spinner:
-        parsed.check_files = decomp_utils.parse_files(
+        parsed_files.check_files = decomp_utils.parse_files(
             dirpath / f
             for dirpath, _, filenames in ovl_config.asm_path.walk()
             for f in filenames
             if not f.startswith(f"func_{ovl_config.version}_")
             and not f.startswith("D_")
         )
-        check_files_by_name = {x.path.name: x for x in parsed.check_files}
+        check_files_by_name = {x.path.name: x for x in parsed_files.check_files}
         ref_files_by_name = defaultdict(list)
-        for ref_file in parsed.ref_files:
+        for ref_file in parsed_files.ref_files:
             # Todo: Explore the functions that have identical ops, but differing normalized instructions
             if (
                 ref_file.path.name in check_files_by_name
@@ -404,6 +396,7 @@ def main(args):
                 ref_files_by_name[ref_file.path.name].append(ref_file)
 
         if ref_files_by_name:
+### group change ###
             spinner.message = f"cross referencing {len(ref_files_by_name)} functions"
 
             # Todo: Clean up this logic
@@ -437,28 +430,25 @@ def main(args):
                                 )
                             )
 
-    if ref_files_by_name and new_syms:
-        with decomp_utils.Spinner(
-            message=f"adding {len(new_syms)} cross referenced symbols and splitting again"
-        ):
-            decomp_utils.add_symbols(ovl_config, tuple(new_syms))
-            decomp_utils.git("clean", ovl_config.asm_path)
-            decomp_utils.splat_split(ovl_config.config_path, ovl_config.disassemble_all)
+            if new_syms:
+### group change ###
+                spinner.message=f"adding {len(new_syms)} cross referenced symbols and splitting again"
+                decomp_utils.add_symbols(ovl_config, tuple(new_syms))
+                decomp_utils.git("clean", ovl_config.asm_path)
+                decomp_utils.splat_split(ovl_config.config_path, ovl_config.disassemble_all)
 
-    with decomp_utils.Spinner(message="staging files"):
-        decomp_utils.git("add", [ovl_config.config_path, ovl_config.ovl_symbol_addrs_path])
+    decomp_utils.git("add", [ovl_config.config_path, ovl_config.ovl_symbol_addrs_path])
 
     with decomp_utils.Spinner(
         message=f"creating {ovl_config.ld_script_path.with_suffix(".elf")}"
-    ):
+    ) as spinner:
         decomp_utils.build(
             [f'{ovl_config.ld_script_path.with_suffix(".elf")}'],
             version=ovl_config.version,
         )
 
-    with decomp_utils.Spinner(
-        message=f"finding segments and splitting source files"
-    ) as spinner:
+### group change ###
+        spinner.message=f"finding segments and splitting source files"
         first_text_index = next(
             i for i, subseg in enumerate(ovl_config.subsegments) if "c" in subseg
         )
@@ -483,16 +473,34 @@ def main(args):
             )
 
     ovl_config.write_config()
-
-    with decomp_utils.Spinner(
-        message=f"extracting overlay to validate configuration"
-    ) as spinner:
-        # Todo: Compare generated offsets to .elf segment offsets
+    built_bin_path = ovl_config.build_path / ovl_config.target_path.name
+    with decomp_utils.Spinner(message=f"building and validating {built_bin_path}"):
+        # TODO: Compare generated offsets to .elf segment offsets
         decomp_utils.git("clean", ovl_config.asm_path)
         ovl_config.ld_script_path.unlink(missing_ok=True)
         decomp_utils.build(
-            [f"{ovl_config.ld_script_path}"], version=ovl_config.version
+            [
+                f"{ovl_config.ld_script_path}",
+                f"{ovl_config.ld_script_path.with_suffix('.elf')}",
+                f"{ovl_config.build_path}/{ovl_config.target_path.name}",
+            ],
+            version=ovl_config.version,
         )
+        if built_bin_path.exists():
+            built_sha1 = hashlib.sha1(built_bin_path.read_bytes()).hexdigest()
+        else:
+            logger.error(f"{built_bin_path} did not build properly")
+            raise SystemExit
+
+        if built_sha1 != ovl_config.sha1:
+            logger.error(f"{built_bin_path} did not match {ovl_config.target_path}")
+            raise SystemExit
+        else:
+            if ovl_config.symexport_path and ovl_config.symexport_path.exists():
+                decomp_utils.git("add", ovl_config.symexport_path)
+            decomp_utils.git("add", [ovl_config.config_path, ovl_config.ovl_symbol_addrs_path])
+
+    with decomp_utils.Spinner(message="getting suggested segments"):
         output = decomp_utils.splat_split(ovl_config.config_path)
         splat_suggestions = RE_PATTERNS.splat_suggestions_full.finditer(output)
 
@@ -505,42 +513,34 @@ def main(args):
                 [offset, segment_type, match.group("segment")]
                 for offset, segment_type in suggestions
             )
-        if suggested_segments:
-            # Todo: Improve logging formatting
-            logger.warning(
-                f"Additional segments suggested by splat: {suggested_segments}"
-            )
-
-    with decomp_utils.Spinner(message="populating e_inits"):
+        spinner.message = "creating extra files"
         sotn_config.create_extra_files(first_data_path.read_text(), ovl_config)
+        # with decomp_utils.Spinner(message=f"adding header.c") as spinner:
+        # Todo: Build header.c
+        # spinner.message = f"adding e_init.c"
+        # Todo: Parse final entity table and build e_init.c
 
-    built_bin = ovl_config.build_path / f"{ovl_config.target_path.name}"
-    with decomp_utils.Spinner(message=f"building and validating {built_bin}"):
-        decomp_utils.build(
-            [
-                f'{ovl_config.ld_script_path.with_suffix(".elf")}',
-                f"{ovl_config.build_path}/{ovl_config.target_path.name}",
-            ],
-            version=ovl_config.version,
+    # wrap up
+    run_time = time.perf_counter() - start_time
+    if run_time < 60:
+        time_text = f"{round(run_time % 60, 0)} seconds"
+    else:
+        minutes = int(run_time // 60)
+        seconds = round(run_time % 60, 0)
+        minutes_text = f"{minutes}m"
+        seconds_text = f"{int(seconds)}s" if seconds else ""
+        time_text = f"{minutes_text}{seconds_text}"
+    print(f"✅ {args.overlay} ({time_text})")
+
+    if unhandled_renames:
+        print(f"\n{len(unhandled_renames)} unhandled match(es) found, see {Path(args.log).relative_to(Path.cwd())} for details")
+    if suggested_segments:
+        print(f"\n{len(suggested_segments)} additional segments were suggested by Splat:")
+        for segment in suggested_segments:
+            print(f"    - [{segment[0]}, {segment[1]}, {segment[2]}]")
+        logger.info(
+            f"Additional segments suggested by splat: {suggested_segments}"
         )
-        if built_bin.exists():
-            built_sha1 = hashlib.sha1(built_bin.read_bytes()).hexdigest()
-        else:
-            logger.error(f"{built_bin} did not build properly")
-            raise SystemExit
-
-        if ovl_config.sha1 != built_sha1:
-            logger.error(f"{built_bin} did not match {ovl_config.target_path}")
-            raise SystemExit
-        else:
-            if ovl_config.symexport_path and ovl_config.symexport_path.exists():
-                decomp_utils.git("add", ovl_config.symexport_path)
-            decomp_utils.git("add", [ovl_config.config_path, ovl_config.ovl_symbol_addrs_path])
-
-    # with decomp_utils.Spinner(message=f"adding header.c") as spinner:
-    # Todo: Build header.c
-    # spinner.message = f"adding e_init.c"
-    # Todo: Parse final entity table and build e_init.c
 
 
 if __name__ == "__main__":
@@ -567,6 +567,13 @@ if __name__ == "__main__":
         help="The version of the game to target",
     )
     parser.add_argument(
+        "-l",
+        "--log",
+        required=False,
+        default=f"{Path(__file__).parent / 'logs/sotn_log.json'}",
+        help="Use an alternate path for the log file"
+    )
+    parser.add_argument(
         "--clean",
         required=False,
         action="store_true",
@@ -581,7 +588,7 @@ if __name__ == "__main__":
     global args
     args = parser.parse_args()
     global logger
-    logger = decomp_utils.get_logger()
+    logger = decomp_utils.get_logger()#filename=args.log)
 
     if args.remove:
         if (config_path := Path(args.remove)).is_file():
@@ -592,4 +599,6 @@ if __name__ == "__main__":
             logger.error(f"{config_path} not found")
             raise SystemExit
     else:
-        main(args)
+        start_time = time.perf_counter()
+        main(args, start_time)
+        

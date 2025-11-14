@@ -339,7 +339,7 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
         check_paths = tuple(x.path for x in check_funcs_by_op_hash[check_op_hash])
         if ref_paths and check_paths:
             ref_names = tuple(
-                sorted((RE_PATTERNS.symbol_ovl_name_prefix.sub(ovl_name.upper(), func.stem) for func in ref_paths),
+                sorted((RE_PATTERNS.symbol_ovl_name_prefix.sub(f"{ovl_name.upper()}_", func.stem) for func in ref_paths),
                        key=lambda x: 0 if re.match(r'^[A-Z0-9]{3,4}', x) else 1 if not x.startswith('func_') else 2)
             )
             check_names = tuple(func.stem for func in check_paths)
@@ -395,6 +395,7 @@ def rename_symbols(ovl_config, matches):
         SimpleNamespace(first="CreateEntitiesToTheLeft", last="CreateEntitiesBelow"),
     )
     symbols = defaultdict(list)
+    unhandled = []
     for match in matches:
         for pair in known_pairs:
             if (
@@ -420,33 +421,37 @@ def rename_symbols(ovl_config, matches):
                     symbols[pair.last].append(decomp_utils.Symbol(pair.last, offset))
                 break
         else:
-            if len(match.check.names) == 1 and match.check.names[0].startswith(
+            new_name = match.ref.counts.no_defaults[0][0]
+            if "unused" in new_name.lower():
+                for name in match.check.names:
+                    name = name.replace(f"func_{ovl_config.version}_", f"{ovl_config.name.upper()}_Unused_")
+                    symbols[name].append(
+                        decomp_utils.Symbol(name, int(name.split("_")[-1], 16))
+                    )
+            elif len(match.check.names) == 1 and match.check.names[0].startswith(
                 f"func_{ovl_config.version}_"
             ):
                 offset = int(match.check.names[0].split("_")[-1], 16)
                 if match.ref.names.no_defaults:
-                    symbols[match.ref.counts.no_defaults[0][0]].append(
-                        decomp_utils.Symbol(match.ref.counts.no_defaults[0][0], offset)
+                    symbols[new_name].append(
+                        decomp_utils.Symbol(f"{ovl_config.name.upper()}_unused_" if "unused" in new_name.lower() else new_name, offset)
                     )
                 if (
                     len(match.ref.counts.no_defaults) > 1
                     and match.ref.counts.no_defaults[0][1]
                     == match.ref.counts.no_defaults[1][1]
                 ):
-                    logger.warning(
-                        f"Ambiguous match: {match.check.names[0]} renamed to {match.ref.counts.no_defaults[0][0]}, all matches were {[x[0] for x in match.ref.counts.no_defaults]} with a score of {match.score}"
-                    )
+                    logger.warn(f"Ambiguous match: {match.check.names[0]} renamed to {new_name} with a score of {match.score}, all matches were {', '.join([x[0] for x in match.ref.counts.no_defaults])}")
 
-            elif match.ref.counts.no_defaults[0][0] == "GetLang":
+            elif len(match.check.names) > 1 and len(match.ref.counts.no_defaults) == 1:
                 for name in match.check.names:
-                    name = name.replace(f"func_{ovl_config.version}_", "GetLang_")
+                    name = name.replace(f"func_{ovl_config.version}_", f"{new_name}_")
                     symbols[name].append(
                         decomp_utils.Symbol(name, int(name.split("_")[-1], 16))
                     )
             elif match.ref.names.no_defaults != match.check.names:
-                logger.warning(
-                    f"Found unhandled naming condition: Target name {match.ref.counts.no_defaults} for {ovl_config.name} function(s) {match.check.names} with score {match.score}"
-                )
+                logger.info(f"Found unhandled naming condition: Target name {match.ref.counts.no_defaults} for {ovl_config.name} function(s) {match.check.names} with score {match.score}")
+                unhandled.append(match.check.names)
 
     if symbols:
         # Todo: Figure out a better way to handle multiple functions mapping to multiple functions with the same name
@@ -457,7 +462,7 @@ def rename_symbols(ovl_config, matches):
                 for syms in symbols.values()
             ),
         )
-        return len(symbols)
+        return len(symbols), unhandled
     else:
         logger.warning("\nNo new symbols found\n")
         return 0
@@ -817,9 +822,30 @@ def ovl_sort(name):
 
     return (group, basename, name.startswith("f_"))
 
+def clean_artifacts(ovl_config, full_clean = False, spinner=SimpleNamespace(message="")):
+    if (asm_path := Path(f"asm/{ovl_config.version}")).exists():
+        spinner.message=f"Cleaning {asm_path}"
+        decomp_utils.git("clean", asm_path)
 
-def clean_artifacts(ovl_config):
-    with decomp_utils.Spinner(message="cleaning artifacts") as spinner:
+    spinner.message=f"Removing {ovl_config.ld_script_path}"
+    ovl_config.ld_script_path.unlink(missing_ok=True)
+
+    spinner.message=f"Removing {ovl_config.ld_script_path.with_suffix(".elf")}"
+    ovl_config.ld_script_path.with_suffix(".elf").unlink(missing_ok=True)
+
+    spinner.message=f"Removing {ovl_config.ld_script_path.with_suffix(".map")}"
+    ovl_config.ld_script_path.with_suffix(".map").unlink(missing_ok=True)
+
+    spinner.message=f"Removing {ovl_config.build_path.joinpath(f"{ovl_config.target_path.name}")}"
+    ovl_config.build_path.joinpath(f"{ovl_config.target_path.name}").unlink(
+        missing_ok=True
+    )
+
+    if (build_src_path := ovl_config.build_path / ovl_config.src_path_full).exists():
+        spinner.message=f"Removing {build_src_path}"
+        shutil.rmtree(build_src_path)
+
+    if full_clean:
         spinner.message=f"Removing config/check.{ovl_config.version}.sha"
         sha_check_path = Path(f"config/check.{ovl_config.version}.sha")
         sha_check_lines = (line for line in sha_check_path.read_text().splitlines() if ovl_config.sha1 not in line)
@@ -834,37 +860,15 @@ def clean_artifacts(ovl_config):
         spinner.message=f"Removing {ovl_config.ovl_symbol_addrs_path}"
         ovl_config.ovl_symbol_addrs_path.unlink(missing_ok=True)
         
-        spinner.message=f"Removing {ovl_config.symexport_path}"
         if ovl_config.symexport_path:
+            spinner.message=f"Removing {ovl_config.symexport_path}"
             ovl_config.symexport_path.unlink(missing_ok=True)
 
-        spinner.message=f"Removing {ovl_config.asm_path}"
-        if ovl_config.asm_path.exists():
-            decomp_utils.shell(f"git clean -fdx {ovl_config.asm_path}")
-
-        spinner.message=f"Removing {ovl_config.build_path / ovl_config.src_path_full}"
-        if (path := ovl_config.build_path / ovl_config.src_path_full).exists():
-            shutil.rmtree(path)
-
-        spinner.message=f"Removing {ovl_config.ld_script_path}"
-        ovl_config.ld_script_path.unlink(missing_ok=True)
-
-        spinner.message=f"Removing {ovl_config.ld_script_path.with_suffix(".elf")}"
-        ovl_config.ld_script_path.with_suffix(".elf").unlink(missing_ok=True)
-
-        spinner.message=f"Removing {ovl_config.ld_script_path.with_suffix(".map")}"
-        ovl_config.ld_script_path.with_suffix(".map").unlink(missing_ok=True)
-
-        spinner.message=f"Removing {ovl_config.build_path.joinpath(f"{ovl_config.target_path.name}")}"
-        ovl_config.build_path.joinpath(f"{ovl_config.target_path.name}").unlink(
-            missing_ok=True
-        )
-
-        spinner.message=f"Removing {ovl_config.src_path_full}"
         if ovl_config.version != "hd" and ovl_config.src_path_full.exists():
+            spinner.message=f"Removing {ovl_config.src_path_full}"
             shutil.rmtree(ovl_config.src_path_full)
-        
+
         spinner.message=f"Removing {ovl_config.config_path}"
         ovl_config.config_path.unlink(missing_ok=True)
 
-        spinner.message=f"cleaned artifacts"
+    spinner.message=f"cleaned artifacts"
