@@ -194,7 +194,10 @@ def find_segments(ovl_config):
                     segment_meta.offset.int = int(segment_meta.offset.str, 16)
             functions.append(current_function)
         else:
-            functions.append(current_function)        
+            functions.append(current_function)
+        if segment_meta and segment_meta.name and segment_meta.name == "cen_psp/cen_psp/e_cutscene_dialogue":
+            print(segment_meta)
+            exit()
 
     if segment_meta and segment_meta not in segments:
         # Todo: Handle this without duplicating the code from the loop, if possible

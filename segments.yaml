@@ -226,6 +226,7 @@ e_gurkha:
 e_blade:
   start: func_801D0A00
   allow:
+    - func_801D0A00
     - func_801D0B40
     - func_801D0B78
     - EntityBlade
@@ -354,12 +355,9 @@ e_cutscene_dialogue:
     - GetLang
     - DrawCutsceneActorName
     - CutsceneUnk1
-  end: 
-    - ${prefix}_EntityCutsceneDialogue
-    - ${prefix}_EntityCutscene
+  end: ${prefix}_EntityCutsceneDialogue
 e_harpy:
-  start: 
-    - EntityHarpy
+  start: EntityHarpy
   allow:
     - EntityHarpy
     - EntityHarpyDagger

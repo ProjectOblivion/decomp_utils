@@ -114,8 +114,8 @@ def add_undefined_symbol(version, symbol, address):
     undefined_syms = Path(f"config/undefined_syms.{version}.txt")
     undefined_syms_lines = undefined_syms.read_text().splitlines()
     if symbol_line not in undefined_syms_lines:
-        new_lines = sorted(undefined_syms_lines, key=decomp_utils.symbols_sort)
-        undefined_syms.write_text("\n".join(new_lines))
+        new_lines = sorted(undefined_syms_lines + [symbol_line], key=decomp_utils.symbols_sort)
+        undefined_syms.write_text("\n".join(new_lines) + "\n")
         decomp_utils.git("add", undefined_syms)
 
 def main(args, start_time):
@@ -279,12 +279,10 @@ def main(args, start_time):
 
 ### group change ###
             spinner.message = "extracting dynamic symbols"
-            [ld.unlink(missing_ok=True) for ld in ref_lds]
             decomp_utils.extract_dynamic_symbols(
                 tuple(ld.with_suffix(".elf") for ld in ref_lds), f"build/{args.version}/config/extract_syms.", version=ovl_config.version
             )
-
-            [ld.unlink for ld in ref_lds]
+            [ld.unlink(missing_ok=True) for ld in ref_lds]
 ### group change ###
             spinner.message = f"disassembling {len(ref_ovls)} reference overlays"
             decomp_utils.build(ref_lds, dynamic_syms=True, version=ovl_config.version)
