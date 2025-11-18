@@ -22,8 +22,27 @@ def main(args):
             else:
                 raise FileNotFoundError(f"{args.symbols_path} does not exist")
             decomp_utils.sort_symbols_files(symbols_files)
-        case "remove-orphans":
-            decomp_utils.remove_orphans_from_config(Path(args.config_file))
+        case "clean":
+            logger = decomp_utils.init_logger(console_level=20)
+            build_files = {"us": [], "pspeu": [], "hd": []}
+            for config_file in args.config_file:
+                _, version, basename, _ = config_file.split(".")
+                ld_path = Path(f"build/{version}/{basename}.ld")
+                if not ld_path.exists():
+                    build_files[version].append(ld_path)
+                if "weapon" not in config_file and not ld_path.with_suffix(".elf").exists():
+                    build_files[version].append(ld_path.with_suffix(".elf"))
+
+            for version, files in build_files.items():
+                if files:
+                    logger.info(f"Building {[f'{f}' for f in files]}")
+                    decomp_utils.build(files, version=version)
+
+            configs = [Path(file) for file in args.config_file]
+            remove = not args.warn_orphans
+            decomp_utils.clean_orphans(configs, remove)
+            remove = args.remove_conflicts
+            decomp_utils.clean_conflicts(configs, remove)
         case "parse":
             excluded_starts = {"LM", "__pad"}
             excluded_ends = {"_START", "_END", "_VRAM"}
@@ -67,23 +86,46 @@ if __name__ == "__main__":
         help="A directory of symbols files or a single symbols file to sort",
     )
 
-    force_parser = subparsers.add_parser(
-        "force",
-        description="Sort all the symbols of a given GNU LD script by their offset",
+    dynamic_symbols_parser = subparsers.add_parser(
+        "dynamic",
+        description="Extract dynamic symbols using specified configs",
     )
-    force_parser.add_argument(
-        "elf_file",
+    dynamic_symbols_parser.add_argument(
+        "config",
         nargs="+",
-        help="An overlay to force symbols for",
+        help="The config(s) to use to extract dynamic symbols",
     )
 
-    remove_orphans_parser = subparsers.add_parser(
-        "remove-orphans",
-        description="Remove all symbols that are not referenced from a specific group of assembly code",
+    clean_syms_parser = subparsers.add_parser(
+        "clean",
+        description="Clean symbol files"
     )
-    remove_orphans_parser.add_argument(
+    clean_syms_parser.add_argument(
         "config_file",
-        help="The config file for the overlay to remove the orphan symbols from",
+        nargs="+",
+        help="The config file for the overlay to clean the symbols file(s) for",
+    )
+    orphans_group = clean_syms_parser.add_mutually_exclusive_group(required=False)
+    orphans_group.add_argument(
+        "--remove-orphans",
+        action="store_true",
+        help="Remove all symbols that are not referenced (default)"
+    )
+    orphans_group.add_argument(
+        "--warn-orphans",
+        action="store_true",
+        help="Show warnings for all symbols that are not referenced"
+    )
+    conflicts_group = clean_syms_parser.add_mutually_exclusive_group(required=False)
+    conflicts_group.add_argument(
+        "--remove-conflicts",
+        action="store_true",
+        help="Remove all symbols that are built with one name, but defined as a different name"
+    )
+    conflicts_group.add_argument(
+        "--warn-conflicts",
+        action="store_true",
+        help="Show warnings for all symbols that are built with one name, but defined as a different name (default)"
     )
 
     parse_parser = subparsers.add_parser(

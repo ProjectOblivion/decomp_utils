@@ -6,6 +6,9 @@ from .sotn_overlay import *
 from .helpers import *
 from .symbols import *
 from .asm_compare import *
+from .regex import *
+
+logger = get_logger()
 
 __all__ = (
     yaml,
@@ -14,4 +17,5 @@ __all__ = (
     *helpers.__all__,
     *symbols.__all__,
     *asm_compare.__all__,
+    *regex.__all__,
 )

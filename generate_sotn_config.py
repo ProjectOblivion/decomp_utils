@@ -39,7 +39,6 @@ Additonal notes:
 # Todo: Allow matches to default functions, but only if there isn't a named match
 # Todo: Review accuracy of naming for offset and address variables
 # Todo: Handle merging psp ovl.h file with existing psx ovl.h file
-# Todo: Collect warnings and display in summary upon completion
 # Todo: Add symbols closer to where the address is gathered
 # Todo: Add einit common symbols
 # Todo: Add EInits to e_init.c
@@ -48,78 +47,8 @@ Additonal notes:
 # Todo: Add g_eRedDoorUV data to e_red_door
 # TODO: Add error handling to functions
 
-def create_ovl_include(ovl_config):
-    ovl_include_path = (
-        ovl_config.src_path_full.with_name(ovl_config.name) / f"{ovl_config.name}.h"
-    )
-    template = Template(Path("tools/decomp_utils/templates/ovl.h.mako").read_text())
-    ovl_header_text = template.render(
-        ovl_name=ovl_config.name,
-        ovl_type=ovl_config.ovl_type,
-        e_inits=None,
-    )
-    if not ovl_include_path.exists():
-        ovl_include_path.parent.mkdir(parents=True, exist_ok=True)
-        ovl_include_path.write_text(ovl_header_text)
-
-def add_sha1_hashes(ovl_config):
-    check_file_path = Path(f"config/check.{ovl_config.version}.sha")
-    check_file_lines = check_file_path.read_text().splitlines()
-    new_lines = check_file_lines.copy()
-    bin_line = f"{ovl_config.sha1}  build/{ovl_config.version}/{ovl_config.target_path.name}"
-    if bin_line not in new_lines:
-        new_lines.append(bin_line)
-    fbin_path = ovl_config.target_path.with_name(
-        f"{"f" if ovl_config.platform == "psp" else "F"}_{ovl_config.target_path.name}"
-    )
-    if fbin_path.exists():
-        fbin_sha1 = hashlib.sha1(fbin_path.read_bytes()).hexdigest()
-        fbin_line = f"{fbin_sha1}  build/{ovl_config.version}/{fbin_path.name}"
-        if fbin_line not in new_lines:
-            new_lines.append(fbin_line)
-    if new_lines != check_file_lines:
-        # Todo: Order the sha1 lines correctly
-        sorted_lines = sorted(new_lines, key=lambda x: sotn_config.ovl_sort(x.split()[-1]))
-        check_file_path.write_text(f"{"\n".join(sorted_lines)}\n")
-
-    decomp_utils.git("add", check_file_path)
-
-def find_psx_entity_table(first_data_text, pStObjLayoutHorizontal_address = None):
-    # TODO: Find a less complicated way to handle this
-    # we know that the entity table is always after the ovl header
-    end_of_header = first_data_text.find(".size")
-    # use the address of pStObjLayoutHorizontal if it was parsed from the header to reduce the amount of data we're searching through
-    if pStObjLayoutHorizontal_address:
-        start_index = first_data_text.find(
-            f"{pStObjLayoutHorizontal_address:08X}", end_of_header
-        )
-    else:
-        logger.warning("No address for found for pStObjLayoutHorizontal, starting at end of header")
-        start_index = end_of_header
-
-    # the first entity referenced after the ovl header, which should be the first element of the entity table
-    first_entity_index = first_data_text.find(
-        " func_", start_index
-    )
-    # the last glabel before the first function pointer should be the entity table symbol
-    entity_table_index = first_data_text.rfind(
-        "glabel", start_index, first_entity_index
-    )
-    # this is just a convoluted way of extracting the entity table symbol name
-    # get the second word of the first line, which should be the entity table symbol name
-    return {"name": first_data_text[entity_table_index:first_entity_index].splitlines()[0].split()[1]}
-
-def add_undefined_symbol(version, symbol, address):
-    symbol_line = f"{symbol}{' '*13}= 0x{address:X};"
-    undefined_syms = Path(f"config/undefined_syms.{version}.txt")
-    undefined_syms_lines = undefined_syms.read_text().splitlines()
-    if symbol_line not in undefined_syms_lines:
-        new_lines = sorted(undefined_syms_lines + [symbol_line], key=decomp_utils.symbols_sort)
-        undefined_syms.write_text("\n".join(new_lines) + "\n")
-        decomp_utils.git("add", undefined_syms)
-
 def main(args, start_time):
-    logger.info("Starting...")
+    logger.info(f"Starting config generation for {args.version} overlay {args.overlay.upper()}")
     with decomp_utils.Spinner(message=f"generating config for overlay {args.overlay.upper()}") as spinner:
         ovl_config = decomp_utils.SotnOverlayConfig(args.overlay, args.version)
         if ovl_config.config_path.exists() and not args.clean:
@@ -136,17 +65,17 @@ def main(args, start_time):
         for symbol_path in ovl_config.symbol_addrs_path:
             symbol_path.touch(exist_ok=True)
         
-        create_ovl_include(ovl_config)
+        sotn_config.create_ovl_include(ovl_config)
 
 ### group change ###
         spinner.message = f"adding sha1 hashes to check file"
-        add_sha1_hashes(ovl_config)
+        sotn_config.add_sha1_hashes(ovl_config)
 
         # psx rchi and psp bo4 have data values that get interpreted as global symbols, so those symbols need to be defined for the linker
         if ovl_config.name == "rchi" and ovl_config.platform == "psx":
-            add_undefined_symbol(ovl_config.version, "PadRead", 0x80015288)
+            sotn_config.add_undefined_symbol(ovl_config.version, "PadRead", 0x80015288)
         elif ovl_config.name == "bo4" and ovl_config.platform == "psp":
-            add_undefined_symbol(ovl_config.version, "g_Clut", 0x091F5DF8)
+            sotn_config.add_undefined_symbol(ovl_config.version, "g_Clut", 0x091F5DF8)
 
 ### group change ###
         spinner.message = f"performing initial split using config {ovl_config.config_path}"
@@ -208,7 +137,7 @@ def main(args, start_time):
             if ovl_config.platform == "psx":
 ### group change ###
                 spinner.message = f"finding the entity table"
-                entity_table = find_psx_entity_table(first_data_text, pStObjLayoutHorizontal_address)
+                entity_table = sotn_config.find_psx_entity_table(first_data_text, pStObjLayoutHorizontal_address)
         else:
             first_data_text = None
             ovl_header, pStObjLayoutHorizontal_address = {}, None
@@ -393,41 +322,10 @@ def main(args, start_time):
             ):
                 ref_files_by_name[ref_file.path.name].append(ref_file)
 
-        if ref_files_by_name:
+        if check_files_by_name and ref_files_by_name:
 ### group change ###
             spinner.message = f"cross referencing {len(ref_files_by_name)} functions"
-
-            # Todo: Clean up this logic
-            new_syms = set()
-            for file_name, parsed_ref_files in ref_files_by_name.items():
-                parsed_check_file = check_files_by_name[file_name]
-                for parsed_ref_file in parsed_ref_files:
-                    for ref_instruction, check_instruction in zip(
-                        parsed_ref_file.instructions.parsed,
-                        parsed_check_file.instructions.parsed,
-                    ):
-                        # Todo: Warn if a symbol is not default and does not match the cross referenced symbol
-                        name = RE_PATTERNS.cross_ref_name_pattern.match(ref_instruction)
-                        address = RE_PATTERNS.cross_ref_address_pattern.match(
-                            check_instruction
-                        )
-                        if (
-                            name
-                            and not name.group(1).startswith("D_")
-                            and not name.group(1).startswith(
-                                f"func_{ovl_config.version}_"
-                            )
-                            and address
-                        ):
-                            new_syms.add(
-                                decomp_utils.Symbol(
-                                    RE_PATTERNS.symbol_ovl_name_prefix.sub(
-                                        ovl_config.name.upper(), name.group(1)
-                                    ),
-                                    int(address.group(1), 16),
-                                )
-                            )
-
+            new_syms = decomp_utils.cross_reference_asm(check_files_by_name, ref_files_by_name, ovl_config.name, ovl_config.version)
             if new_syms:
 ### group change ###
                 spinner.message=f"adding {len(new_syms)} cross referenced symbols and splitting again"
@@ -568,7 +466,7 @@ if __name__ == "__main__":
         "-l",
         "--log",
         required=False,
-        default=f"{Path(__file__).parent / 'logs/sotn_log.json'}",
+        default=f"{Path(__file__).parent / 'logs' / 'sotn_log.json'}",
         help="Use an alternate path for the log file"
     )
     parser.add_argument(
@@ -586,7 +484,7 @@ if __name__ == "__main__":
     global args
     args = parser.parse_args()
     global logger
-    logger = decomp_utils.get_logger()#filename=args.log)
+    logger = decomp_utils.init_logger(filename=args.log)
 
     if args.remove:
         if (config_path := Path(args.remove)).is_file():

@@ -6,7 +6,7 @@ from pathlib import Path
 from collections import defaultdict, deque
 from hashlib import sha1
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from .helpers import RE_PATTERNS
+from .regex import RE_PATTERNS
 import Levenshtein
 
 __all__ = [
