@@ -168,7 +168,7 @@ def init_logger(
     if isinstance(filename, (str, Path)):
         filename = Path(filename)
     
-    if not filename.exists:
+    if not filename.exists():
         filename.parent.mkdir(parents=True, exist_ok=True)
 
     logger = get_logger()
