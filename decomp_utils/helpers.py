@@ -165,6 +165,12 @@ def init_logger(
     filename=Path(__file__).parent.parent / "logs" / "sotn_log.json",
 ):
     """Simple wrapper function to make it easier to set up and use custom formatting"""
+    if isinstance(filename, (str, Path)):
+        filename = Path(filename)
+    
+    if not filename.exists:
+        filename.parent.mkdir(parents=True, exist_ok=True)
+
     logger = get_logger()
     logger.setLevel(logging.INFO)
 
