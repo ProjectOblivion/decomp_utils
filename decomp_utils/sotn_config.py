@@ -773,11 +773,6 @@ def parse_entity_table(data_file_text, ovl_name, entity_table_symbol):
 
 
 def create_extra_files(data_file_text, ovl_config):
-    ovl_header_path = (
-        f"../{ovl_config.name}/{ovl_config.name}.h"
-        if ovl_config.platform == "psp"
-        else f"{ovl_config.name}.h"
-    )
     entity_table_start = data_file_text.find(
         f"glabel {ovl_config.name.upper()}_EntityUpdates"
     )
@@ -856,12 +851,22 @@ def create_extra_files(data_file_text, ovl_config):
         template = Template(
             Path("tools/decomp_utils/templates/header.c.mako").read_text()
         )
-        output = template.render(
-            ovl_header_path=ovl_header_path,
+        new_header = template.render(
+            ovl_header_path=f"{ovl_config.name}.h",
             ovl_type=ovl_config.ovl_type,
             header_syms=header_syms,
         )
-        ovl_config.src_path_full.joinpath("header.c").write_text(output)
+        header_path = ovl_config.src_path_full.parent / ovl_config.name / "header.c"
+        if header_path.is_file():
+            existing_header = header_path.read_text()
+        if new_header == existing_header:
+            new_lines = new_header.rstrip("\n").splitlines()
+            license = new_lines[0]
+            existing_lines = existing_header.rstrip("\n").splitlines()
+            existing_lines = existing_lines[1:] if existing_lines[0] == license else existing_lines
+            ifdef = f"#ifdef VERSION_{'PSP' if ovl_config.version=='pspeu' else ovl_config.version.upper()}"
+            output = f"{license}\n{ifdef}\n{"\n".join(new_lines[1:])}\n#else\n{'\n'.join(existing_lines)}\n#endif\n"
+        header_path.write_text(output)
 
 
 def ovl_sort(name):
