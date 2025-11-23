@@ -859,14 +859,15 @@ def create_extra_files(data_file_text, ovl_config):
         header_path = ovl_config.src_path_full.parent / ovl_config.name / "header.c"
         if header_path.is_file():
             existing_header = header_path.read_text()
-        if new_header == existing_header:
-            new_lines = new_header.rstrip("\n").splitlines()
-            license = new_lines[0]
-            existing_lines = existing_header.rstrip("\n").splitlines()
-            existing_lines = existing_lines[1:] if existing_lines[0] == license else existing_lines
-            ifdef = f"#ifdef VERSION_{'PSP' if ovl_config.version=='pspeu' else ovl_config.version.upper()}"
-            output = f"{license}\n{ifdef}\n{"\n".join(new_lines[1:])}\n#else\n{'\n'.join(existing_lines)}\n#endif\n"
-        header_path.write_text(output)
+            if new_header == existing_header:
+                new_lines = new_header.rstrip("\n").splitlines()
+                license = new_lines[0]
+                existing_lines = existing_header.rstrip("\n").splitlines()
+                existing_lines = existing_lines[1:] if existing_lines[0] == license else existing_lines
+                ifdef = f"#ifdef VERSION_{'PSP' if ovl_config.version=='pspeu' else ovl_config.version.upper()}"
+                new_header = f"{license}\n{ifdef}\n{"\n".join(new_lines[1:])}\n#else\n{'\n'.join(existing_lines)}\n#endif\n"
+
+        header_path.write_text(new_header)
 
 
 def ovl_sort(name):
