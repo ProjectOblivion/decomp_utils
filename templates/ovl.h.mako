@@ -15,11 +15,11 @@
 maxlen = max(len(e_init) for function, e_init in e_inits) + 1
 %>
 
-enum OVL_EXPORT(Palettes) {
+enum Palettes {
     PAL_NONE,
 };
 
-enum OVL_EXPORT(Entities) {
+enum Entities {
     E_NONE,
 % for function, e_init in e_inits:
     ${(e_init + ",").ljust(maxlen)} // ${function}
