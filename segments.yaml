@@ -411,3 +411,8 @@ e_valhalla_knight:
     - EntityValhallaKnight
     - func_us_801C8954
     - func_us_801C8AAC
+e_explosion_puff_opaque:
+  start: CreateExplosionPuff
+  allow:
+    - CreateExplosionPuff
+    - EntityExplosionPuffOpaque
