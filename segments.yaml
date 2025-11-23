@@ -118,7 +118,9 @@ entrance_weights:
   end: EntityPathBlockTallWeight
 e_heartroom:
   start: EntityHeartRoomSwitch
-  end: EntityHeartRoomGoldDoor
+  allow: 
+    - EntityHeartRoomSwitch
+    - EntityHeartRoomGoldDoor
 e_cavern_door:
   start: DoorCascadePhysics
   end: EntityCavernDoor
@@ -287,7 +289,7 @@ e_flea_armor:
   start: EntityFleaArmor
   allow:
     - EntityFleaArmor
-    - func_us_801BFC60
+    - EntityFleaArmorAttackHitbox
 e_owl_knight:
   start: EntityOwl
   allow:
