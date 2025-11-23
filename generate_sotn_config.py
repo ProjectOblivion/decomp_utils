@@ -46,6 +46,18 @@ Additonal notes:
 # Todo: Extract and import RedDoorTiles data
 # Todo: Add g_eRedDoorUV data to e_red_door
 # TODO: Add error handling to functions
+# TODO: Add SrcAsmPair tools/dups/src/main.rs
+"""
+        SrcAsmPair {
+            asm_dir: String::from("../../asm/us/st/are/matchings/"),
+            src_dir: String::from("../../src/st/are/"),
+            overlay_name: String::from("ARE"),
+            include_asm: get_all_include_asm("../../src/st/are/"),
+            path_matcher: "st/are".to_string(),
+        },
+"""
+# TODO: Add to tools/progress.py
+# progress["stare"] = DecompProgressStats("stare", "st/are")
 
 def main(args, start_time):
     logger.info(f"Starting config generation for {args.version} overlay {args.overlay.upper()}")
@@ -135,7 +147,25 @@ def main(args, start_time):
                 )
             )
             if ovl_header.get("symbols"):
+                spinner.message = f"creating {ovl_config.name}/header.c"
                 sotn_config.create_header_c(ovl_config, ovl_header.get("symbols"))
+                spinner.message = f"adding header subsegment"
+                data_subseg_index, data_subseg = next(item for item in enumerate(ovl_config.subsegments) if "data" in item[1])
+                header_offset = (ovl_header["address"] - ovl_config.vram) + 0x80 if ovl_config.platform == "psp" else 0
+                header_subseg = [header_offset, ".data", f"{ovl_config.name}/header" if ovl_config.platform == "psp" else "header"]
+                next_offset = header_offset + ovl_header.get("size_bytes", 0) + 4
+                new_data_subsegs = []
+                if header_offset == data_subseg[0]:
+                    new_data_subsegs.append(header_subseg)
+                    data_subseg[0] += next_offset
+                    first_data_path = first_data_path.with_stem(f"{next_offset:X}.data")
+                    new_data_subsegs.append(data_subseg)
+                else:
+                    new_data_subsegs.append(data_subseg)
+                    new_data_subsegs.append(header_subseg)
+                    new_data_subsegs.append([next_offset, "data"])
+                ovl_config.subsegments[data_subseg_index:data_subseg_index + 1] = [decomp_utils.yaml.FlowSegment(x) for x in new_data_subsegs]
+            # TODO: Add data segments for follow-on header symbols
             if ovl_config.platform == "psx":
 ### group change ###
                 spinner.message = f"finding the entity table"
@@ -262,6 +292,7 @@ def main(args, start_time):
 
         if num_symbols:
 ### group change ###
+            # TODO: Why isn't this showing?
             spinner.message=f"renamed {num_symbols} symbols from {len(matches)} similar functions, splitting again"
             decomp_utils.git("clean", ovl_config.asm_path)
             decomp_utils.splat_split(ovl_config.config_path, ovl_config.disassemble_all)

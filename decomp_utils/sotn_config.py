@@ -604,8 +604,6 @@ def parse_psp_stage_init_fallback(asm_path):
 
 
 def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol=None):
-    # Account for both Abbreviated and full headers
-    # Account for difference in stage headers vs other headers
     match ovl_type:
         case "stage" | "boss":
             ovl_header = [
@@ -626,8 +624,8 @@ def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol=Non
                 "UpdateStageEntities",
                 "g_SpriteBank1",
                 "g_SpriteBank2",
-                "skip", # unk34
-                "skip", # unk38
+                "unk34",
+                "unk38",
                 "StageEndCutScene",
             ]
         case _:
@@ -661,12 +659,12 @@ def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol=Non
         # Todo: Make the address parsing more straight forward, instead of capturing both address and name
         header_symbols = tuple(
             decomp_utils.Symbol(
-                address[1] if name == "skip" or (not address[1].startswith("func_") and not address[1].startswith("D_") and not address[1].startswith("g_")) else name, int.from_bytes(bytes.fromhex(address[0]), "little")
+                address[1] if name.startswith("unk") or (not address[1].startswith("func_") and not address[1].startswith("D_") and not address[1].startswith("g_")) else name, int.from_bytes(bytes.fromhex(address[0]), "little")
             )
             # Todo: Does this need the filtering, or should it just overwrite the existing regardless?
             for name, address in zip(ovl_header, matches)
         )
-        return {"address": header_address, "symbols": header_symbols}, pStObjLayoutHorizontal_address
+        return {"address": header_address, "size_bytes": (len(header_symbols) - 1) * 4, "symbols": header_symbols}, pStObjLayoutHorizontal_address
     else:
         return {}
 
