@@ -134,6 +134,8 @@ def main(args, start_time):
                     stage_init.get("ovl_header"),
                 )
             )
+            if ovl_header.get("symbols"):
+                sotn_config.create_header_c(ovl_config, ovl_header.get("symbols"))
             if ovl_config.platform == "psx":
 ### group change ###
                 spinner.message = f"finding the entity table"

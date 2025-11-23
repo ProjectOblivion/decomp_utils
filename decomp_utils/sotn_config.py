@@ -26,6 +26,7 @@ __all__ = [
     "parse_psp_stage_init",
     "parse_psp_weapon_load",
     "parse_ovl_header",
+    "create_header_c",
     "parse_init_room_entities",
     "parse_entity_table",
     "create_extra_files",
@@ -625,9 +626,9 @@ def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol=Non
                 "UpdateStageEntities",
                 "g_SpriteBank1",
                 "g_SpriteBank2",
-                # "unk34",
-                # "unk38",
-                # "unk3C",
+                "skip", # unk34
+                "skip", # unk38
+                "StageEndCutScene",
             ]
         case _:
             return {}
@@ -649,29 +650,48 @@ def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol=Non
     # Todo: Should this be findall or finditer?
     matches = RE_PATTERNS.symbol_line_pattern.findall(header)
     if matches:
-        if ovl_type != "weapon" and len(matches) > 7:
+        if len(matches) > 7:
             pStObjLayoutHorizontal_address = int.from_bytes(
                 bytes.fromhex(matches[7][0]), "little"
             )
         else:
             pStObjLayoutHorizontal_address = None
+
         # Todo: Ensure this is doing a 1 for 1 line replacement, whether func, d_ or null
         # Todo: Make the address parsing more straight forward, instead of capturing both address and name
-        symbols = tuple(
+        header_symbols = tuple(
             decomp_utils.Symbol(
-                name, int.from_bytes(bytes.fromhex(address[0]), "little")
+                address[1] if name == "skip" or (not address[1].startswith("func_") and not address[1].startswith("D_") and not address[1].startswith("g_")) else name, int.from_bytes(bytes.fromhex(address[0]), "little")
             )
             # Todo: Does this need the filtering, or should it just overwrite the existing regardless?
             for name, address in zip(ovl_header, matches)
-            if address[1].startswith("func_")
-            or address[1].startswith("D_")
-            or address[1].startswith("g_")
         )
-        return {"address": header_address,
-                "symbols": symbols}, pStObjLayoutHorizontal_address
+        return {"address": header_address, "symbols": header_symbols}, pStObjLayoutHorizontal_address
     else:
         return {}
 
+def create_header_c(ovl_config, header_symbols):
+    header_syms = [f"{symbol.name.replace(f'{ovl_config.name.upper()}_', 'OVL_EXPORT(')})" if f"{ovl_config.name.upper()}_" in symbol.name else "NULL" if symbol.name == "0x00000000" else symbol.name for symbol in header_symbols]
+    template = Template(
+        Path("tools/decomp_utils/templates/header.c.mako").read_text()
+    )
+    new_header = template.render(
+        ovl_header_path=f"{ovl_config.name}.h",
+        ovl_type=ovl_config.ovl_type,
+        header_syms=header_syms,
+    )
+    header_path = ovl_config.src_path_full.parent / ovl_config.name / "header.c"
+    if header_path.is_file():
+        existing_header = header_path.read_text()
+        if new_header != existing_header:
+            new_lines = new_header.rstrip("\n").splitlines()
+            license = new_lines[0]
+            existing_lines = existing_header.rstrip("\n").splitlines()
+            existing_lines = existing_lines[1:] if existing_lines[0] == license else existing_lines
+            ifdef = f"#ifdef VERSION_{'PSP' if ovl_config.version=='pspeu' else ovl_config.version.upper()}"
+            new_header = f"{license}\n{ifdef}\n{"\n".join(new_lines[1:])}\n#else\n{'\n'.join(existing_lines)}\n#endif\n"
+
+    header_path.write_text(new_header)
 
 def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
     init_room_entities_map = {
@@ -834,40 +854,6 @@ def create_extra_files(data_file_text, ovl_config):
         ovl_config.src_path_full.joinpath(ovl_config.name).with_suffix(".h").write_text(
             output
         )
-
-    header_start = data_file_text.find(f"glabel {ovl_config.name.upper()}_Overlay")
-    header_end = data_file_text.find(f".size {ovl_config.name.upper()}_Overlay")
-    if header_start != -1:
-        header_syms = []
-        for line in data_file_text[header_start:header_end].splitlines()[1:]:
-            if f"{ovl_config.name.upper()}_" in line:
-                header_syms.append(
-                    f'{line.split()[-1].replace(f"{ovl_config.name.upper()}_", "OVL_EXPORT(")})'
-                )
-            else:
-                name = line.split()[-1]
-                header_syms.append("NULL" if name == "0x00000000" else name)
-
-        template = Template(
-            Path("tools/decomp_utils/templates/header.c.mako").read_text()
-        )
-        new_header = template.render(
-            ovl_header_path=f"{ovl_config.name}.h",
-            ovl_type=ovl_config.ovl_type,
-            header_syms=header_syms,
-        )
-        header_path = ovl_config.src_path_full.parent / ovl_config.name / "header.c"
-        if header_path.is_file():
-            existing_header = header_path.read_text()
-            if new_header == existing_header:
-                new_lines = new_header.rstrip("\n").splitlines()
-                license = new_lines[0]
-                existing_lines = existing_header.rstrip("\n").splitlines()
-                existing_lines = existing_lines[1:] if existing_lines[0] == license else existing_lines
-                ifdef = f"#ifdef VERSION_{'PSP' if ovl_config.version=='pspeu' else ovl_config.version.upper()}"
-                new_header = f"{license}\n{ifdef}\n{"\n".join(new_lines[1:])}\n#else\n{'\n'.join(existing_lines)}\n#endif\n"
-
-        header_path.write_text(new_header)
 
 
 def ovl_sort(name):
