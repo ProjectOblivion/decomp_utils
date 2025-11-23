@@ -797,6 +797,11 @@ def create_extra_files(data_file_text, ovl_config):
             for line in parsed_entity_table
         ]
         e_inits = []
+
+        # if the last item is a null address, then it is padding
+        if entity_funcs[-1] == "0x00000000":
+            entity_funcs.pop()
+
         for i, func in enumerate(entity_funcs):
             if func == "EntityDummy":
                 e_inits.append((func, f"E_DUMMY_{i+1:X}"))
@@ -811,6 +816,8 @@ def create_extra_files(data_file_text, ovl_config):
                         .replace("ENTITY", "E"),
                     )
                 )
+            elif func == "0x00000000":
+                e_inits.append((func, f"NULL"))
             else:
                 e_inits.append((func, f"E_UNK_{i+1:X}"))
 
