@@ -41,9 +41,28 @@ e_particles:
   end: EntityEnemyBlood
 e_collect:
   start:
-    - PrizeDropFall
+    - func_psp_0923C2F8
     - BlitChar
-  end: EntityMessageBox
+    - PrizeDropFall
+  allow: 
+    - func_psp_0923C2F8
+    - func_psp_0923C390
+    - BlitChar
+    - PrizeDropFall
+    - PrizeDropFall2
+    - CollectHeart
+    - CollectGold
+    - CollectHeartVessel
+    - CollectLifeVessel
+    - CollectDummy
+    - EntityPrizeDrop
+    - EntityExplosion
+    - BlinkItem
+    - Unreferenced_MAD_ST0_func
+    - EntityEquipItemDrop
+    - EntityRelicOrb
+    - EntityHeartDrop
+    - EntityMessageBox
 e_room_fg:
   start: EntityRoomForeground
 popup:
