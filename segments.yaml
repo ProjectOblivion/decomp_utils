@@ -52,6 +52,7 @@ e_collect:
     - PrizeDropFall2
     - CollectHeart
     - CollectGold
+    - CollectSubweapon
     - CollectHeartVessel
     - CollectLifeVessel
     - CollectDummy
