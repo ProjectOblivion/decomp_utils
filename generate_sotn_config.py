@@ -256,8 +256,6 @@ def main(args, start_time):
                     ref_files.extend(
                         dirpath / f
                         for f in filenames
-                        if not f.startswith(f"func_{ovl_config.version}_")
-                        and not f.startswith("D_")
                     )
                 if (
                     ovl_config.name in dirpath.parts
@@ -267,6 +265,7 @@ def main(args, start_time):
                         dirpath / f
                         for f in filenames
                         if f.startswith(f"func_{ovl_config.version}_")
+                        or f.startswith(f"D_{ovl_config.version}_")
                     )
 ### group change ###
             spinner.message=f"parsing instructions from {len(check_files)} new files and {len(ref_files)} reference files"

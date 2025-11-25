@@ -95,7 +95,13 @@ e_lock_camera:
 e_venus_weed:
   ovl: chi
   start: SetupPrimsForEntitySpriteParts
-  end: EntityVenusWeedSpike
+  allow:
+    - SetupPrimsForEntitySpriteParts
+    - EntityVenusWeed
+    - EntityVenusWeedFlower
+    - EntityVenusWeedTendril
+    - EntityVenusWeedDart
+    - EntityVenusWeedSpike
 e_blue_venus_weed:
   ovl:
     - rno3
@@ -104,12 +110,14 @@ e_blue_venus_weed:
   allow:
     - SetupPrimsForEntitySpriteParts
     - EntityVenusWeed
-    - func_us_801C5850
-    - func_us_801D7940
-    - func_us_801C5F40
-    - func_us_801D8030
+    - EntityVenusWeedFlower
+    - EntityVenusWeedTendril
     - EntityVenusWeedDart
     - EntityVenusWeedSpike
+    - func_us_801C5850 # rno3
+    - func_us_801C5F40 # rno3
+    - func_us_801D7940 # rno4
+    - func_us_801D8030 # rno4
 water_effects:
   start: func_801C4144
   end: EntityWaterDrop
@@ -214,24 +222,36 @@ e_spectral_sword:
   ovl: rdai
   allow: 
     - StepTowards
-    - func_us_801C0C44
+    - func_us_801C0C44 # rdai EntitySpectralSword
     - EntitySpectralSwordAura
-    - func_us_801C17E8
+    - func_us_801C17E8 # rdai EntitySpectralSwordWeapon
 e_lesser_demon:
-  start: func_us_801BC51C
+  start:
+    - func_lib_801BB8DC
+    - func_801966B0 # from stmad e_misc, but duplicate of lib func_us_801BB8DC
   allow:
-    - func_us_801BC51C
-    - func_us_801BC6CC
+    - func_lib_801BB8DC
+    - func_801966B0
+    - func_lib_801BBAB4
+    - func_us_801BC6CC # rnz0
     - EntityLesserDemonSpit
-    - func_us_801BCE4C
-    - func_us_801BD13C
-    - func_us_801BD3D4
-    - func_us_801BD7D0
-    - func_us_801BDB94
-    - func_us_801BDE28
-    - func_us_801BE550
+    - func_lib_801BC28C
+    - func_us_801BCE4C # rnz0
+    - func_lib_801BC57C
+    - func_us_801BD13C # rnz0
+    - func_lib_801BC814
+    - func_us_801BD3D4 # rnz0
+    - func_lib_801BCC10
+    - func_us_801BD7D0 # rnz0
+    - func_lib_801BCFD4
+    - func_us_801BDB94 # rnz0
+    - func_lib_801BD268
+    - func_us_801BDE28 # rnz0
+    - func_lib_801BDA34
+    - func_us_801BE550 # rnz0
     - EntityLesserDemon
-    - func_us_801BF7B0
+    - func_lib_801BED48
+    - func_us_801BF7B0 #rnz0
 e_killer_fish:
   start: EntityKillerFish
   allow:
@@ -295,10 +315,10 @@ e_cloaked_knight:
   start: StepTowards
   allow: 
     - StepTowards
-    - func_us_801BBC0C
-    - func_us_801BC4C8
-    - func_us_801BC5F8
-    - func_us_801BC71C
+    - EntityCloakedKnight
+    - EntityCloakedKnightCloak
+    - EntityCloakedKnightAura
+    - EntityCloakedKnightSword
 e_gremlin:
   start: EntityGremlin
   allow:
@@ -335,20 +355,20 @@ e_plate_lord:
   start: func_801CD78C
   allow:
     - func_801CD78C
-    - func_us_801D2424
-    - func_us_801D26CC
-    - func_us_801D274C
-    - func_us_801D27C4
+    - func_no0_801D2424
+    - func_no0_801D26CC
+    - func_no0_801D274C
+    - func_no0_801D27C4
     - StepTowards
     - EntityPlateLord
-    - func_us_801D4324
-    - func_us_801D44A0
-    - func_us_801D4AA4
-    - func_us_801D4CAC
+    - func_no0_801D4324
+    - func_no0_801D44A0
+    - func_no0_801D4AA4
+    - func_no0_801D4CAC
 e_bone_musket:
   start: EntityBoneMusket
     - EntityBoneMusket
-    - func_us_801CF298
+    - func_no1_801CF298
 e_slogra:
   start: EntitySlograSpecialCollision
   allow:
@@ -387,23 +407,26 @@ e_harpy:
     - EntityHarpyKick
     - EntityHarpyFeather
 e_sword_lord:
-  start: func_us_801BC9BC
+  start:
+    - func_no1_801CF57C
+    - func_nz1_801BC9BC
   allow:
-    - func_us_801BC9BC
+    - func_no1_801CF57C
+    - func_nz1_801BC9BC
     - EntitySwordLord
-    - func_us_801BD970
+    - EntitySwordLordAttackHitbox
 e_armor_lord:
-  start: func_us_801D1184
+  start: func_no1_801D1184
   allow:
-    - func_us_801D1184
-    - func_us_801D1388
+    - func_no1_801D1184
+    - func_no1_801D1388
     - EntityArmorLordFireWave
-    - func_us_801D1A94
-    - func_us_801D1A9C
-    - func_us_801D1DAC
+    - func_no1_801D1A94
+    - func_no1_801D1A9C
+    - func_no1_801D1DAC
     - EntityArmorLord
-    - func_us_801D348C
-    - func_us_801D3700
+    - func_no1_801D348C
+    - func_no1_801D3700
 e_thornweed_corpseweed:
   start: EntityThornweed
   allow:
@@ -422,17 +445,24 @@ e_grave_keeper:
   start: SpawnDustParticles
   allow:
     - SpawnDustParticles
-    - func_us_801D12E0
+    - func_cat_801D12E0
     - EntityGraveKeeper
     - EntityGraveKeeperHitbox
 e_valhalla_knight:
   start: EntityValhallaKnight
   allow:
     - EntityValhallaKnight
-    - func_us_801C8954
-    - func_us_801C8AAC
+    - func_no2_801C8954
+    - func_no2_801C8AAC
 e_explosion_puff_opaque:
   start: CreateExplosionPuff
   allow:
     - CreateExplosionPuff
     - EntityExplosionPuffOpaque
+e_ctulhu:
+  start: EntityCtulhu
+  allow:
+    - EntityCtulhu
+    - EntityCtulhuFireball
+    - EntityCtulhuIceShockwave
+    - EntityCtulhuDeath

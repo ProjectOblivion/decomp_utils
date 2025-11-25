@@ -407,11 +407,12 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
         check_paths = tuple(x.path for x in check_funcs_by_op_hash[check_op_hash])
         if ref_paths and check_paths:
             ref_names = tuple(
-                sorted((RE_PATTERNS.symbol_ovl_name_prefix.sub(f"{ovl_name.upper()}_", func.stem) for func in ref_paths),
-                       key=lambda x: 0 if re.match(r'^[A-Z0-9]{3,4}', x) else 1 if not x.startswith('func_') else 2)
+                sorted((RE_PATTERNS.symbol_ovl_name_prefix.sub(f"{ovl_name.upper()}_", func.stem.replace(f"func_{version}_", f"func_{func.parts[3]}_")) for func in ref_paths),
+                       key=lambda x: (0, x) if re.match(r'^[A-Z0-9]{3,4}', x) else (1, x) if not x.startswith('func_') else (2, x) if not re.match(r'func_[A-Za-z0-9]{3,4}_', x) else (3, x))
             )
             check_names = tuple(func.stem for func in check_paths)
             matches.add((ref_paths, ref_names, check_paths, check_names))
+    # TODO: review this logic to remove no_defaults
     matches = tuple(
         SimpleNamespace(
             ref=SimpleNamespace(
@@ -446,6 +447,7 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
 
 
 def rename_symbols(ovl_config, matches):
+    # TODO: move to yaml file
     known_pairs = (
         SimpleNamespace(first="func_801CC5A4", last="func_801CF438"),
         SimpleNamespace(first="func_801CC90C", last="func_801CF6D8"),
@@ -464,6 +466,7 @@ def rename_symbols(ovl_config, matches):
     )
     symbols = defaultdict(list)
     unhandled = []
+    # TODO: Review this logic to remove no_defaults
     for match in matches:
         for pair in known_pairs:
             if (
@@ -489,7 +492,7 @@ def rename_symbols(ovl_config, matches):
                     symbols[pair.last].append(decomp_utils.Symbol(pair.last, offset))
                 break
         else:
-            new_name = match.ref.counts.no_defaults[0][0]
+            new_name = match.ref.counts.all[0][0]
             if "unused" in new_name.lower():
                 for name in match.check.names:
                     name = name.replace(f"func_{ovl_config.version}_", f"{ovl_config.name.upper()}_Unused_")
@@ -500,18 +503,19 @@ def rename_symbols(ovl_config, matches):
                 f"func_{ovl_config.version}_"
             ):
                 offset = int(match.check.names[0].split("_")[-1], 16)
-                if match.ref.names.no_defaults:
+                if match.ref.names.all:
                     symbols[new_name].append(
                         decomp_utils.Symbol(f"{ovl_config.name.upper()}_unused_" if "unused" in new_name.lower() else new_name, offset)
                     )
                 if (
-                    len(match.ref.counts.no_defaults) > 1
-                    and match.ref.counts.no_defaults[0][1]
-                    == match.ref.counts.no_defaults[1][1]
+                    len(match.ref.counts.all) > 1
+                    and match.ref.counts.all[0][1]
+                    == match.ref.counts.all[1][1]
                 ):
                     logger.warn(f"Ambiguous match: {match.check.names[0]} renamed to {new_name} with a score of {match.score}, all matches were {', '.join([x[0] for x in match.ref.counts.no_defaults])}")
-
-            elif len(match.check.names) > 1 and len(match.ref.counts.no_defaults) == 1:
+            elif len(match.check.names) == 1 and match.check.names[0] == new_name:
+                continue
+            elif len(match.check.names) > 1 and len(match.ref.counts.all) == 1:
                 for name in match.check.names:
                     name = name.replace(f"func_{ovl_config.version}_", f"{new_name}_")
                     symbols[name].append(
