@@ -28,13 +28,13 @@ __all__ = [
     "parse_ovl_header",
     "create_header_c",
     "parse_init_room_entities",
-    "parse_entity_table",
+    "parse_entity_updates",
     "create_extra_files",
     "ovl_sort",
     "clean_artifacts",
     "create_ovl_include",
     "add_sha1_hashes",
-    "find_psx_entity_table",
+    "find_psx_entity_updates",
 ]
 
 logger = decomp_utils.get_logger()
@@ -75,7 +75,7 @@ def add_sha1_hashes(ovl_config):
 
     decomp_utils.git("add", check_file_path)
 
-def find_psx_entity_table(first_data_text, pStObjLayoutHorizontal_address = None):
+def find_psx_entity_updates(first_data_text, pStObjLayoutHorizontal_address = None):
     # TODO: Find a less complicated way to handle this
     # we know that the entity table is always after the ovl header
     end_of_header = first_data_text.find(".size")
@@ -93,12 +93,12 @@ def find_psx_entity_table(first_data_text, pStObjLayoutHorizontal_address = None
         " func_", start_index
     )
     # the last glabel before the first function pointer should be the entity table symbol
-    entity_table_index = first_data_text.rfind(
+    entity_updates_index = first_data_text.rfind(
         "glabel", start_index, first_entity_index
     )
     # this is just a convoluted way of extracting the entity table symbol name
     # get the second word of the first line, which should be the entity table symbol name
-    return {"name": first_data_text[entity_table_index:first_entity_index].splitlines()[0].split()[1]}
+    return {"name": first_data_text[entity_updates_index:first_entity_index].splitlines()[0].split()[1]}
 
 # TODO: Use mipsmatch to supplement segments.yaml
 # TODO: mipsmatch scan some.yaml another.yaml evenmore.yaml import.bin for the bin you're importing
@@ -571,7 +571,7 @@ def parse_psp_stage_init(asm_path):
 
 # This function is deprecated and scheduled for demolition
 def parse_psp_stage_init_fallback(asm_path):
-    stage_init_name, header_symbol, entity_table_symbol = None, None, None
+    stage_init_name, header_symbol, entity_updates_symbol = None, None, None
     first_address_pattern = re.compile(r"\s+/\*\s+[A-F0-9]{1,5}\s+([A-F0-9]{8})\s")
     for file in (
         dirpath / f
@@ -598,12 +598,12 @@ def parse_psp_stage_init_fallback(asm_path):
         if " C708023C " in file_text and " 30BC43AC " in file_text:
             match = RE_PATTERNS.psp_entity_table_pattern.search(file_text)
             if match:
-                entity_table_symbol = match.group("entity")
-        if stage_init_name and header_symbol and entity_table_symbol:
+                entity_updates_symbol = match.group("entity")
+        if stage_init_name and header_symbol and entity_updates_symbol:
             return (
                 (stage_init_name, stage_init_address),
                 header_symbol,
-                entity_table_symbol,
+                entity_updates_symbol,
             )
 
 
@@ -732,9 +732,9 @@ def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
 
     return symbols, create_entity_bss_address
 
-
-def parse_entity_table(data_file_text, ovl_name, entity_table_symbol):
-    entity_table = [
+def parse_entity_updates(data_file_text, ovl_name, entity_updates_symbol):
+    parsed_entity_updates = None
+    known_entity_updates = [
         f"{ovl_name.upper()}_EntityBreakable",
         "EntityExplosion",
         "EntityPrizeDrop",
@@ -757,54 +757,45 @@ def parse_entity_table(data_file_text, ovl_name, entity_table_symbol):
         "EntityExplosionVariants",
         "EntityGreyPuff",
     ]
-
-    entity_table_start = data_file_text.find(f"glabel {entity_table_symbol}")
-    entity_table_end = data_file_text.find(f".size {entity_table_symbol}")
-    if entity_table_start != -1:
-        parsed_entity_table = data_file_text[
-            entity_table_start:entity_table_end
+    entity_updates_start = data_file_text.find(f"glabel {entity_updates_symbol}")
+    entity_updates_end = data_file_text.find(f".size {entity_updates_symbol}")
+    if entity_updates_start != -1:
+        entity_updates_lines = data_file_text[
+            entity_updates_start:entity_updates_end
         ].splitlines()
-        for i, line in enumerate(parsed_entity_table):
-            if " func" in line or " Entity" in line:
-                entity_table_address = int(line.split()[2], 16)
-                break
-            else:
-                entity_table_address = None
 
-        parsed_entity_table = "\n".join(parsed_entity_table[i:])
-        matches = RE_PATTERNS.symbol_line_pattern.findall(parsed_entity_table)
+        first_e_init_start = data_file_text.find("glabel ", entity_updates_end)
+        first_e_init_end = data_file_text.find("\n", first_e_init_start)
+        first_e_init = data_file_text[first_e_init_start:first_e_init_end].split()[1]
 
-    if matches:
-        # Do not rename to EntityDummy if the two addresses don't match
-        if len(matches) > 14 and matches[14] != matches[15]:
-            entity_table[14:15] = [
-                f"EntityUnk{matches[14][0]}",
-                f"EntityUnk{matches[15][0]}",
-            ]
-        symbols = tuple(
-            decomp_utils.Symbol(
-                name, int.from_bytes(bytes.fromhex(address[0]), "little")
+        # if the last item is a null address, then it is padding
+        if entity_updates_lines[-1].endswith("0x00000000"):
+            entity_updates_lines.pop()
+
+        table_start, entity_updates_address = next(((i, int(line.split()[2], 16)) for i, line in enumerate(entity_updates_lines) if " func" in line or " Entity" in line), (len(entity_updates_lines) - 1, None))
+        entity_updates_lines = entity_updates_lines[table_start:]
+        if matches := RE_PATTERNS.symbol_line_pattern.findall("\n".join(entity_updates_lines)):
+            # Do not rename to EntityDummy if the two addresses don't match
+            if len(matches) > 14 and matches[14] != matches[15]:
+                known_entity_updates[14:15] = [
+                    f"EntityUnk{matches[14][0]}",
+                    f"EntityUnk{matches[15][0]}",
+                ]
+            symbols = tuple(
+                decomp_utils.Symbol(
+                    name, int.from_bytes(bytes.fromhex(address[0]), "little")
+                )
+                for name, address in zip(known_entity_updates, matches)
             )
-            for name, address in zip(entity_table, matches)
-        )
+            parsed_entity_updates = symbols + tuple(decomp_utils.Symbol(
+                    name.split()[-1], int.from_bytes(bytes.fromhex(address[0]), "little")
+                )
+                for name, address in zip(entity_updates_lines[len(symbols):], matches[len(symbols):]))
+        else:
+            symbols = tuple()
 
-    else:
-        symbols = tuple()
-
-    return entity_table_address, symbols + ()
-
-
-def create_extra_files(data_file_text, ovl_config):
-    entity_table_start = data_file_text.find(
-        f"glabel {ovl_config.name.upper()}_EntityUpdates"
-    )
-    entity_table_end = data_file_text.find(
-        f".size {ovl_config.name.upper()}_EntityUpdates"
-    )
-    if entity_table_start != -1:
-        parsed_entity_table = data_file_text[
-            entity_table_start:entity_table_end
-        ].splitlines()[1:]
+    # TODO: Why the weird + () ?
+    return {"address": entity_updates_address, "first_e_init": first_e_init, "items": parsed_entity_updates, "symbols": symbols + ()}
         entity_funcs = [
             (
                 f'{line.split()[-1].replace(f"{ovl_config.name.upper()}_", "OVL_EXPORT(")})'

@@ -111,7 +111,7 @@ def main(args, start_time):
 ### group change ###
             spinner.message = f"parsing the psp stage init for symbols"
             asm_path = ovl_config.asm_path.joinpath(ovl_config.nonmatchings_path)
-            stage_init, entity_table = sotn_config.parse_psp_stage_init(asm_path)
+            stage_init, entity_updates = sotn_config.parse_psp_stage_init(asm_path)
 
             # build symexport lines, but only write if needed
             symexport_lines = []
@@ -169,34 +169,33 @@ def main(args, start_time):
             if ovl_config.platform == "psx":
 ### group change ###
                 spinner.message = f"finding the entity table"
-                entity_table = sotn_config.find_psx_entity_table(first_data_text, pStObjLayoutHorizontal_address)
+                entity_updates = sotn_config.find_psx_entity_updates(first_data_text, pStObjLayoutHorizontal_address)
         else:
             first_data_text = None
             ovl_header, pStObjLayoutHorizontal_address = {}, None
-            entity_table = {}
+            entity_updates = {}
 
 
 ### group change ###
-        spinner.message=f"gathering initial symbols"
-        if entity_table.get("name") and first_data_text:
+        if entity_updates.get("name") and first_data_text:
 ### group change ###
             spinner.message = f"parsing the entity table for symbols"
             entity_table["address"], entity_table["symbols"] = sotn_config.parse_entity_table(
                 first_data_text, ovl_config.name, entity_table.get("name")
             )
 
-        if ovl_header.get("symbols") or entity_table.get("symbols"):
+        if ovl_header.get("symbols") or entity_updates.get("symbols"):
             parsed_symbols.extend((
                 symbol
                 for symbols in (
                     ovl_header.get("symbols"),
-                    entity_table.get("symbols"),
+                    entity_updates.get("symbols"),
                 )
                 if symbols is not None
                 for symbol in symbols
             ))
-        if entity_table.get("address"):
-            parsed_symbols.append(decomp_utils.Symbol(f"{ovl_config.name.upper()}_EntityUpdates", entity_table.get("address")))
+        if entity_updates.get("address"):
+            parsed_symbols.append(decomp_utils.Symbol(f"{ovl_config.name.upper()}_EntityUpdates", entity_updates.get("address")))
         if ovl_header.get("address"):
             parsed_symbols.append(decomp_utils.Symbol(f"{ovl_config.name.upper()}_Overlay", ovl_header.get("address")))
 
