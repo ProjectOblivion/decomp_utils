@@ -1,9 +1,9 @@
 from __future__ import annotations
 import struct
 import hashlib
-import decomp_utils.yaml_ext as yaml
-import decomp_utils.mips as mips
-from decomp_utils.helpers import get_logger
+import yaml_ext as yaml
+import mips as mips
+from helpers import get_logger
 from pathlib import Path
 from types import SimpleNamespace
 

@@ -1,23 +1,61 @@
 #!/usr/bin/env python3
 
-import argparse
-import os
 import re
 import shutil
-import decomp_utils
+import time
 import hashlib
-from decomp_utils import RE_TEMPLATES, RE_PATTERNS
+from regex import RE_TEMPLATES, RE_PATTERNS
 from concurrent.futures import ProcessPoolExecutor
 from collections import Counter, deque, defaultdict
 from pathlib import Path
 from types import SimpleNamespace
 from mako.template import Template
 from enum import Enum
-import multiprocessing
+from helpers import get_logger
+from helpers import Spinner
+from sotn_overlay import SotnOverlayConfig
+from helpers import git
+from symbols import get_symbol_offset
+from asm_compare import group_by_hash
+from asm_compare import get_buckets
+from asm_compare import find_matches
+from asm_compare import group_results
+from symbols import Symbol
+from symbols import add_symbols
+from symbols import get_symbol_address
+from helpers import splat_split
+from helpers import build
+from symbols import extract_dynamic_symbols
+from asm_compare import parse_files
+from symbols import cross_reference_asm
+import yaml_ext as yaml
 
 """
 Code for handling the creation of Castlevania SOTN Splat configs
 """
+# Todo: Allow matches to default functions, but only if there isn't a named match
+# Todo: Review accuracy of naming for offset and address variables
+# Todo: Handle merging psp ovl.h file with existing psx ovl.h file
+# Todo: Add symbols closer to where the address is gathered
+# Todo: Add einit common symbols
+# Todo: Add EInits to e_init.c
+# Todo: Extract and import BackgroundBlockInit data
+# Todo: Extract and import RedDoorTiles data
+# Todo: Add g_eRedDoorUV data to e_red_door
+# TODO: Add error handling to functions
+# TODO: Add SrcAsmPair tools/dups/src/main.rs
+# TODO: Parse and add palettes to enum
+"""
+        SrcAsmPair {
+            asm_dir: String::from("../../asm/us/st/are/matchings/"),
+            src_dir: String::from("../../src/st/are/"),
+            overlay_name: String::from("ARE"),
+            include_asm: get_all_include_asm("../../src/st/are/"),
+            path_matcher: "st/are".to_string(),
+        },
+"""
+# TODO: Add to tools/progress.py
+# progress["stare"] = DecompProgressStats("stare", "st/are")
 
 __all__ = [
     "get_known_starts",
@@ -42,7 +80,7 @@ __all__ = [
     "find_psx_entity_updates",
 ]
 
-logger = decomp_utils.get_logger()
+logger = get_logger()
 
 class EnemyDefs(Enum):
     BlueAxeKnight = 0x006
@@ -271,7 +309,7 @@ def add_sha1_hashes(ovl_config):
         sorted_lines = sorted(new_lines, key=lambda x: ovl_sort(x.split()[-1]))
         check_file_path.write_text(f"{"\n".join(sorted_lines)}\n")
 
-    decomp_utils.git("add", check_file_path)
+    git("add", check_file_path)
 
 def find_psx_entity_updates(first_data_text, pStObjLayoutHorizontal_address = None):
     # TODO: Find a less complicated way to handle this
@@ -303,8 +341,7 @@ def find_psx_entity_updates(first_data_text, pStObjLayoutHorizontal_address = No
 def get_known_starts(
     ovl_name, version, segments_path=Path("tools/decomp_utils/segments.yaml")
 ):
-    segments_config = decomp_utils.yaml.safe_load(segments_path.read_text())
-
+    segments_config = yaml.safe_load(segments_path.read_text())
     known_segments = []
     # Todo: Simplify this logic
     for label, values in segments_config.items():
@@ -396,7 +433,7 @@ def find_segments(ovl_config):
             )
 
         if segment_meta and not segment_meta.offset:
-            if offset := decomp_utils.get_symbol_offset(ovl_config.ld_script_path.with_suffix(".map"), current_function, ovl_config.vram, ovl_config.start):
+            if offset := get_symbol_offset(ovl_config.ld_script_path.with_suffix(".map"), current_function, ovl_config.vram, ovl_config.start):
                 segment_meta.offset = SimpleNamespace(int=offset)
                 segment_meta.offset.str = f"{segment_meta.offset.int:X}"
             else:
@@ -439,7 +476,7 @@ def find_segments(ovl_config):
                 offset=None,
                 allow=None,
             )
-            if offset := decomp_utils.get_symbol_offset(ovl_config.ld_script_path.with_suffix(".map"), current_function, ovl_config.vram, ovl_config.start):
+            if offset := get_symbol_offset(ovl_config.ld_script_path.with_suffix(".map"), current_function, ovl_config.vram, ovl_config.start):
                 segment_meta.offset = SimpleNamespace(int=offset)
                 segment_meta.offset.str = f"{segment_meta.offset.int:X}"
             else:
@@ -508,7 +545,7 @@ def find_segments(ovl_config):
 
         # Extract rodata symbols from INCLUDE_RODATA macros
         for rodata_symbol in RE_PATTERNS.include_rodata.findall(segment_text):
-            rodata_offset = decomp_utils.get_symbol_offset(ovl_config.ld_script_path.with_suffix(".map"), rodata_symbol, ovl_config.vram, ovl_config.start)
+            rodata_offset = get_symbol_offset(ovl_config.ld_script_path.with_suffix(".map"), rodata_symbol, ovl_config.vram, ovl_config.start)
             if rodata_offset:
                 rodata_subsegments.append(
                     SimpleNamespace(
@@ -575,14 +612,14 @@ def find_segments(ovl_config):
 
 def find_symbols(parsed, version, ovl_name, threshold=0.95):
     # Todo: Segments by op hash
-    ref_funcs_by_op_hash = decomp_utils.group_by_hash(parsed.ref_files, "op")
-    check_funcs_by_op_hash = decomp_utils.group_by_hash(parsed.check_files, "op")
+    ref_funcs_by_op_hash = group_by_hash(parsed.ref_files, "op")
+    check_funcs_by_op_hash = group_by_hash(parsed.check_files, "op")
     ref_ops_by_op_hash = {k: v[0].ops.parsed for k, v in ref_funcs_by_op_hash.items()}
     check_ops_by_op_hash = {
         k: v[0].ops.parsed for k, v in check_funcs_by_op_hash.items()
     }
 
-    buckets = decomp_utils.get_buckets(
+    buckets = get_buckets(
         (ref_ops_by_op_hash, check_ops_by_op_hash), num_buckets=20, tolerance=0.1
     )
 
@@ -596,10 +633,10 @@ def find_symbols(parsed, version, ovl_name, threshold=0.95):
     )
     # Todo: Move this to a distinct concurrency file
     with ProcessPoolExecutor() as executor:
-        results = executor.map(decomp_utils.find_matches, kwargs)
+        results = executor.map(find_matches, kwargs)
 
     matches = set()
-    for ref_op_hash, results in decomp_utils.group_results(results).items():
+    for ref_op_hash, results in group_results(results).items():
         ref_paths = tuple(x.path for x in ref_funcs_by_op_hash[ref_op_hash])
         check_op_hash, score, _ = results[0]
         check_paths = tuple(x.path for x in check_funcs_by_op_hash[check_op_hash])
@@ -679,7 +716,7 @@ def rename_symbols(ovl_config, matches):
                 offset = min(
                     tuple(int(x.split("_")[-1], 16) for x in match.check.names)
                 )
-                symbols[pair.first].append(decomp_utils.Symbol(pair.first, offset))
+                symbols[pair.first].append(Symbol(pair.first, offset))
                 if (
                     len(match.check.names) == 2
                     and pair.last in match.ref.names.no_defaults
@@ -687,7 +724,7 @@ def rename_symbols(ovl_config, matches):
                     offset = max(
                         tuple(int(x.split("_")[-1], 16) for x in match.check.names)
                     )
-                    symbols[pair.last].append(decomp_utils.Symbol(pair.last, offset))
+                    symbols[pair.last].append(Symbol(pair.last, offset))
                 break
         else:
             new_name = match.ref.counts.all[0][0]
@@ -695,7 +732,7 @@ def rename_symbols(ovl_config, matches):
                 for name in match.check.names:
                     name = name.replace(f"func_{ovl_config.version}_", f"{ovl_config.name.upper()}_Unused_")
                     symbols[name].append(
-                        decomp_utils.Symbol(name, int(name.split("_")[-1], 16))
+                        Symbol(name, int(name.split("_")[-1], 16))
                     )
             elif len(match.check.names) == 1 and match.check.names[0].startswith(
                 f"func_{ovl_config.version}_"
@@ -703,7 +740,7 @@ def rename_symbols(ovl_config, matches):
                 offset = int(match.check.names[0].split("_")[-1], 16)
                 if match.ref.names.all:
                     symbols[new_name].append(
-                        decomp_utils.Symbol(f"{ovl_config.name.upper()}_unused_" if "unused" in new_name.lower() else new_name, offset)
+                        Symbol(f"{ovl_config.name.upper()}_unused_" if "unused" in new_name.lower() else new_name, offset)
                     )
                 if (
                     len(match.ref.counts.all) > 1
@@ -717,7 +754,7 @@ def rename_symbols(ovl_config, matches):
                 for name in match.check.names:
                     name = name.replace(f"func_{ovl_config.version}_", f"{new_name}_")
                     symbols[name].append(
-                        decomp_utils.Symbol(name, int(name.split("_")[-1], 16))
+                        Symbol(name, int(name.split("_")[-1], 16))
                     )
             elif match.ref.names.no_defaults != match.check.names:
                 logger.info(f"Found unhandled naming condition: Target name {match.ref.counts.no_defaults} for {ovl_config.name} function(s) {match.check.names} with score {match.score}")
@@ -725,7 +762,7 @@ def rename_symbols(ovl_config, matches):
 
     if symbols:
         # Todo: Figure out a better way to handle multiple functions mapping to multiple functions with the same name
-        decomp_utils.add_symbols(
+        add_symbols(
             ovl_config,
             tuple(
                 sorted(syms, key=lambda x: x.address, reverse=True)[0]
@@ -860,7 +897,7 @@ def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol=Non
         # Todo: Ensure this is doing a 1 for 1 line replacement, whether func, d_ or null
         # Todo: Make the address parsing more straight forward, instead of capturing both address and name
         header_symbols = tuple(
-            decomp_utils.Symbol(
+            Symbol(
                 address[1] if name.startswith("unk") or (not address[1].startswith("func_") and not address[1].startswith("D_") and not address[1].startswith("g_")) else name, int.from_bytes(bytes.fromhex(address[0]), "little")
             )
             # Todo: Does this need the filtering, or should it just overwrite the existing regardless?
@@ -912,7 +949,7 @@ def sort_subsegments(subsegments):
         if len(subsegment) == 4:
             next_offset = subsegment[0] + subsegment.pop()
 
-    return [decomp_utils.yaml.FlowSegment(x) for x in new_subsegments]
+    return [yaml.FlowSegment(x) for x in new_subsegments]
 
 def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
     init_room_entities_map = {
@@ -933,7 +970,7 @@ def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
     }
     lines = init_room_entities_path.read_text().splitlines()
     symbols = tuple(
-        decomp_utils.Symbol(
+        Symbol(
             name,
             int(
                 RE_PATTERNS.init_room_entities_symbol_pattern.fullmatch(lines[i]).group(
@@ -1001,12 +1038,12 @@ def parse_entity_updates(data_file_text, ovl_name, entity_updates_symbol):
                     f"EntityUnk{matches[15][0]}",
                 ]
             symbols = tuple(
-                decomp_utils.Symbol(
+                Symbol(
                     name, int.from_bytes(bytes.fromhex(address[0]), "little")
                 )
                 for name, address in zip(known_entity_updates, matches)
             )
-            parsed_entity_updates = symbols + tuple(decomp_utils.Symbol(
+            parsed_entity_updates = symbols + tuple(Symbol(
                     name.split()[-1], int.from_bytes(bytes.fromhex(address[0]), "little")
                 )
                 for name, address in zip(entity_updates_lines[len(symbols):], matches[len(symbols):]))
@@ -1034,7 +1071,7 @@ def cross_reference_e_init_c(check_entity_updates, check_e_inits, ref_e_init_pat
             entity_updates_end = file_text.find("};", entity_updates_start)
             ref_entity_updates = [item.strip().replace("OVL_EXPORT(", f"{ovl_name.upper()}_").rstrip(",)") for item in file_text[entity_updates_start:entity_updates_end].splitlines()[1:] if item]
             if len(check_entity_updates) == len(ref_entity_updates):
-                symbols.extend(decomp_utils.Symbol(to_name, from_symbol.address) for from_symbol, to_name in zip(check_entity_updates, ref_entity_updates))
+                symbols.extend(Symbol(to_name, from_symbol.address) for from_symbol, to_name in zip(check_entity_updates, ref_entity_updates))
 
         if check_e_inits:
             ref_e_inits = []
@@ -1059,7 +1096,7 @@ def cross_reference_e_init_c(check_entity_updates, check_e_inits, ref_e_init_pat
                     if ref_e_init[1:] != check_e_inits[i - not_matched][1:]:
                         not_matched += 1
                     else:
-                        symbols.append(decomp_utils.Symbol(ref_e_init[0], decomp_utils.get_symbol_address(map_path, check_e_inits[i - not_matched][0])))
+                        symbols.append(Symbol(ref_e_init[0], get_symbol_address(map_path, check_e_inits[i - not_matched][0])))
 
         return symbols, len(ref_e_inits) == len(check_e_inits) + not_matched
     return [], False
@@ -1154,7 +1191,7 @@ def parse_e_inits(data_file_text, first_e_init, ovl_name, platform):
                 name = matches.groupdict().get("name") or f"g_EInitUnused{address:08X}"
                 animSet = int(matches.group("animSet"), 16)
                 parsed_e_inits.append((
-                    decomp_utils.Symbol(name, address),
+                    Symbol(name, address),
                     f"ANIMSET_{'OVL' if animSet & 0x8000 else 'DRA'}({animSet & ~0x8000})",
                     int(matches.group("animCurFrame"), 16),
                     int(matches.group("unk5A"), 16),
@@ -1172,7 +1209,7 @@ def parse_e_inits(data_file_text, first_e_init, ovl_name, platform):
             name = matches.groupdict().get("name") or f"g_EInitUnused{address:08X}"
             animSet = int(matches.group("animSet"), 16)
             parsed_e_inits.append((
-                decomp_utils.Symbol(name, address),
+                Symbol(name, address),
                 f"ANIMSET_{'OVL' if animSet & 0x8000 else 'DRA'}({animSet & ~0x8000})",
                 int(matches.group("animCurFrame"), 16),
                 int(matches.group("unk5A"), 16),
@@ -1183,8 +1220,8 @@ def parse_e_inits(data_file_text, first_e_init, ovl_name, platform):
 
     EnemyDefsVals = [x.value for x in EnemyDefs]
 
-    symbols = [decomp_utils.Symbol(name, e_init[0].address) for name, e_init in zip(known_e_inits, parsed_e_inits) if platform != "psp"]
-    symbols.extend(decomp_utils.Symbol(f"g_EInit{EnemyDefs(e_init[5])}".replace("EnemyDefs.", "") if e_init[5] in EnemyDefsVals else e_init[0].name, e_init[0].address) for e_init in parsed_e_inits[len(symbols):])
+    symbols = [Symbol(name, e_init[0].address) for name, e_init in zip(known_e_inits, parsed_e_inits) if platform != "psp"]
+    symbols.extend(Symbol(f"g_EInit{EnemyDefs(e_init[5])}".replace("EnemyDefs.", "") if e_init[5] in EnemyDefsVals else e_init[0].name, e_init[0].address) for e_init in parsed_e_inits[len(symbols):])
     e_inits = [(symbol.name if platform != "psp" else e_init[0].name, e_init[1], e_init[2], e_init[3], e_init[4], f"0x{e_init[5]:03X}") for symbol, e_init in zip(symbols, parsed_e_inits)]
     next_offset = re.match(r"glabel\s+\w+\n\s+/\*\s+(?P<offset>[0-9A-Fa-f]+)\s+", text)
     return e_inits, int(next_offset.group("offset"), 16) if next_offset else None, [x for x in symbols if not x.name.startswith("D_")]
@@ -1192,9 +1229,7 @@ def parse_e_inits(data_file_text, first_e_init, ovl_name, platform):
 def ovl_sort(name):
     game = "dra ric maria "
     stage = "are cat cen chi dai dre lib mad no0 no1 no2 no3 no4 np3 nz0 nz1 sel st0 top wrp "
-    r_stage = (
-        "rare rcat rcen rchi rdai rlib rno0 rno1 rno2 rno3 rno4 rnz0 rnz1 rtop rwrp "
-    )
+    rstage ="rare rcat rcen rchi rdai rlib rno0 rno1 rno2 rno3 rno4 rnz0 rnz1 rtop rwrp "
     boss = "bo0 bo1 bo2 bo3 bo4 bo5 bo6 bo7 mar rbo0 rbo1 rbo2 rbo3 rbo4 rbo5 rbo6 rbo7 rbo8 "
     servant = "tt_000 tt_001 tt_002 tt_003 tt_004 tt_005 tt_006 "
 
@@ -1206,7 +1241,7 @@ def ovl_sort(name):
         group = 1
     elif basename in stage:
         group = 2
-    elif basename in r_stage:
+    elif basename in rstage:
         group = 3
     elif basename in boss:
         group = 4
@@ -1221,10 +1256,16 @@ def ovl_sort(name):
 
     return (group, basename, name.startswith("f_"))
 
+def can_extract(overlay):
+    stage = "are cat cen chi dai dre lib mad no0 no1 no2 no3 no4 np3 nz0 nz1 sel st0 top wrp "
+    rstage = "rare rcat rcen rchi rdai rlib rno0 rno1 rno2 rno3 rno4 rnz0 rnz1 rtop rwrp "
+    boss = "bo0 bo1 bo2 bo3 bo4 bo5 bo6 bo7 mar rbo0 rbo1 rbo2 rbo3 rbo4 rbo5 rbo6 rbo7 rbo8 "
+    return overlay in (stage + rstage + boss).split(" ")
+
 def clean_artifacts(ovl_config, full_clean = False, spinner=SimpleNamespace(message="")):
     if (asm_path := Path(f"asm/{ovl_config.version}")).exists():
         spinner.message=f"Cleaning {asm_path}"
-        decomp_utils.git("clean", asm_path)
+        git("clean", asm_path)
 
     spinner.message=f"Removing {ovl_config.ld_script_path}"
     ovl_config.ld_script_path.unlink(missing_ok=True)
@@ -1271,3 +1312,442 @@ def clean_artifacts(ovl_config, full_clean = False, spinner=SimpleNamespace(mess
         ovl_config.config_path.unlink(missing_ok=True)
 
     spinner.message=f"cleaned artifacts"
+
+def extract(args, version):
+    start_time = time.perf_counter()
+    logger.info(f"Starting config generation for {version} overlay {args.overlay.upper()}")
+    with Spinner(message=f"generating config for overlay {args.overlay.upper()}") as spinner:
+        ovl_config = SotnOverlayConfig(args.overlay, version)
+        if ovl_config.config_path.exists() and not args.clean:
+            logger.error(
+                f"Configuration {ovl_config.name} already exists.  Use the --clean option to remove all existing overlay artifacts and re-extract the overlay."
+            )
+            raise SystemExit
+
+        clean_artifacts(ovl_config, args.clean, spinner)
+
+### group change ###
+        spinner.message=f"creating initial files for overlay {args.overlay.upper()}"
+        ovl_config.write_config()
+        for symbol_path in ovl_config.symbol_addrs_path:
+            symbol_path.touch(exist_ok=True)
+        
+        ovl_header_path = ovl_config.src_path_full.parent / ovl_config.name / f"{ovl_config.name}.h"
+        create_ovl_include(None, ovl_config.name, ovl_config.ovl_type, ovl_header_path)
+
+### group change ###
+        spinner.message = f"adding sha1 hashes to check file"
+        add_sha1_hashes(ovl_config)
+
+        # psx rchi and psp bo4 have data values that get interpreted as global symbols, so those symbols need to be defined for the linker
+        if ovl_config.name == "rchi" and ovl_config.platform == "psx":
+            add_undefined_symbol(ovl_config.version, "PadRead", 0x80015288)
+        elif ovl_config.name == "bo4" and ovl_config.platform == "psp":
+            add_undefined_symbol(ovl_config.version, "g_Clut", 0x091F5DF8)
+
+### group change ###
+        spinner.message = f"performing initial split using config {ovl_config.config_path}"
+        splat_split(ovl_config.config_path, ovl_config.disassemble_all)
+
+### group change ###
+        spinner.message = f"adjusting initial include asm paths"
+        src_text = ovl_config.first_src_file.read_text()
+        adjusted_text = src_text.replace(f'("asm/{version}/', '("')
+        ovl_config.first_src_file.write_text(adjusted_text)
+
+### group change ###
+        spinner.message = f"generating new {ovl_config.version} build plan including {ovl_config.name.upper()}"
+        build(build=False, version=ovl_config.version)
+
+    with Spinner(message=f"gathering initial symbols") as spinner:
+        parsed_symbols = []
+        # TODO: rename this
+        stage_init = {}
+        if ovl_config.platform == "psp":
+### group change ###
+            spinner.message = f"parsing the psp stage init for symbols"
+            asm_path = ovl_config.asm_path.joinpath(ovl_config.nonmatchings_path)
+            stage_init, entity_updates = parse_psp_stage_init(asm_path)
+
+            # build symexport lines, but only write if needed
+            symexport_lines = []
+            if ovl_config.path_prefix:
+                symexport_lines.append(f"EXTERN(_binary_assets_{ovl_config.path_prefix}_{ovl_config.name}_mwo_header_bin_start);")
+            else:
+                symexport_lines.append(f"EXTERN(_binary_assets_{ovl_config.name}_mwo_header_bin_start);")
+            if stage_init.get("name"):
+                symexport_lines.append(f"EXTERN({stage_init.get("name")});")
+            if not ovl_config.symexport_path.exists():
+### group change ###
+                spinner.message = "creating symexport file"
+                ovl_config.symexport_path.write_text("\n".join(symexport_lines))
+                git("add", ovl_config.symexport_path)
+
+            if stage_init.get("address"):
+                Symbol(f"{ovl_config.name.upper()}_Load", stage_init.get("address"))
+                parsed_symbols.append(Symbol(f"{ovl_config.name.upper()}_Load", stage_init.get("address")))
+
+### group change ###
+        spinner.message = f"building initial {ovl_config.ld_script_path.with_suffix('.elf')}"
+        build([f"{ovl_config.ld_script_path.with_suffix('.elf')}"], version=ovl_config.version)
+
+### group change ###
+        spinner.message = f"finding the first data file"
+        first_data_offset = next(subseg[0] for subseg in ovl_config.subsegments if "data" in subseg)
+        first_data_path = ovl_config.asm_path / "data" / f"{first_data_offset:X}.data.s"
+        if first_data_path.exists():
+            first_data_text = first_data_path.read_text()
+### group change ###
+            spinner.message = f"parsing the overlay header for symbols"
+            ovl_header, pStObjLayoutHorizontal_address = (
+                parse_ovl_header(
+                    first_data_text,
+                    ovl_config.name,
+                    ovl_config.platform,
+                    ovl_config.ovl_type,
+                    stage_init.get("ovl_header"),
+                )
+            )
+            if ovl_header.get("symbols"):
+                spinner.message = f"creating {ovl_config.name}/header.c"
+                create_header_c(ovl_header.get("symbols"), ovl_config.name, ovl_config.ovl_type, ovl_config.version, ovl_config.src_path_full.parent / ovl_config.name / "header.c")
+                spinner.message = f"adding header subsegment"
+                header_offset = ovl_header["address"] - ovl_config.vram + ovl_config.start
+                header_subseg = [header_offset, ".data", f"{ovl_config.name}/header" if ovl_config.platform == "psp" else "header", ovl_header.get("size_bytes", 0)]
+                ovl_config.subsegments.append(header_subseg)
+            # TODO: Add data segments for follow-on header symbols
+            if ovl_config.platform == "psx":
+### group change ###
+                spinner.message = f"finding the entity table"
+                entity_updates = find_psx_entity_updates(first_data_text, pStObjLayoutHorizontal_address)
+        else:
+            first_data_text = None
+            ovl_header, pStObjLayoutHorizontal_address = {}, None
+            entity_updates = {}
+
+
+### group change ###
+        spinner.message="gathering initial symbols"
+        if entity_updates.get("name") and first_data_text:
+### group change ###
+            spinner.message = "parsing EntityUpdates"
+            entity_updates.update(parse_entity_updates(first_data_text, ovl_config.name, entity_updates.get("name")))
+### group change ###
+            spinner.message = "parsing EInits"
+            e_inits, next_offset, symbols = parse_e_inits(first_data_text, entity_updates.get("first_e_init"), ovl_config.name, ovl_config.platform)
+            parsed_symbols.extend(symbols)
+            e_init_c_path = ovl_config.src_path_full.with_name(ovl_config.name) / "e_init.c"
+
+### group change ###
+            if ovl_config.version == "us":
+                spinner.message = "creating e_init.c"
+                e_init_success = create_e_init_c(entity_updates.get("items"), e_inits, ovl_config.name, e_init_c_path)
+            else:
+                spinner.message = "cross-referencing e_init.c"
+                e_init_symbols, e_init_success = cross_reference_e_init_c(entity_updates.get("items"), e_inits, e_init_c_path, ovl_config.name, ovl_config.ld_script_path.with_suffix(".map"))
+                parsed_symbols.extend(e_init_symbols)
+
+            entity_updates_offset = entity_updates.get("address", 0) - ovl_config.vram + ovl_config.start
+            if entity_updates_offset > 0:
+                e_init_subseg = [entity_updates_offset, f"{'.' if e_init_success else ''}data", f"{ovl_config.name}/e_init" if ovl_config.platform == "psp" else "e_init", next_offset - entity_updates_offset]
+                ovl_config.subsegments.append(e_init_subseg)
+
+            create_ovl_include(entity_updates.get("items"), ovl_config.name, ovl_config.ovl_type, ovl_header_path)
+
+
+        if ovl_header.get("symbols") or entity_updates.get("symbols"):
+            parsed_symbols.extend((
+                symbol
+                for symbols in (
+                    ovl_header.get("symbols"),
+                    entity_updates.get("symbols"),
+                )
+                if symbols is not None
+                for symbol in symbols
+            ))
+        if entity_updates.get("address"):
+            parsed_symbols.append(Symbol(f"{ovl_config.name.upper()}_EntityUpdates", entity_updates.get("address")))
+        if ovl_header.get("address"):
+            parsed_symbols.append(Symbol(f"{ovl_config.name.upper()}_Overlay", ovl_header.get("address")))
+
+        if parsed_symbols:
+### group change ###
+            spinner.message = f"adding {len(parsed_symbols)} parsed symbols and splitting using updated symbols"
+            add_symbols(ovl_config, parsed_symbols)
+            add_files = tuple(f"{x}" for x in [ovl_config.config_path, ovl_config.ovl_symbol_addrs_path, ovl_config.symexport_path] if x and x.exists())
+            git("add", add_files)
+            git("clean", ovl_config.asm_path)
+            splat_split(ovl_config.config_path)
+
+    with Spinner(
+        message="gathering reference overlays"
+    ) as spinner:
+        ref_ovls = []
+        for file in Path("config").glob(f"splat.{ovl_config.version}.*.yaml"):
+            # TODO: bin/mipsmatch --output mipsmatch-${ovl}.yaml fingerprint build/us/st${ovl}.map build/us/st${ovl}.elf for each reference overlay
+            # Todo: Evaluate whether limiting to stage and non-stage overlays as references makes a practical difference in execution time
+            if (
+                ovl_config.name not in file.name
+                and (match := RE_PATTERNS.ref_pattern.match(file.name))
+            ):
+                prefix = match.group("prefix") or ""
+                ref_name = match.group("ref_ovl")
+                ld_path = ovl_config.build_path.joinpath(prefix + ref_name).with_suffix(".ld")
+                ref_ovls.append(SimpleNamespace(prefix=prefix, name=ref_name, ld_path=ld_path))
+
+        if ref_ovls:
+            ref_lds = tuple(ovl.ld_path for ovl in ref_ovls)
+            found_elfs = tuple(ovl_config.build_path.glob("*.elf"))
+            missing_elfs = tuple(
+                ld.with_suffix(".elf")
+                for ld in ref_lds
+                if ld.with_suffix(".elf") not in found_elfs
+            )
+            if missing_elfs:
+### group change ###
+                spinner.message = f"extracting {len(missing_elfs)} missing reference .elf files"
+                build(missing_elfs, plan=True, version=ovl_config.version)
+
+### group change ###
+            spinner.message = "extracting dynamic symbols"
+            extract_dynamic_symbols(
+                tuple(ld.with_suffix(".elf") for ld in ref_lds), f"build/{version}/config/extract_syms.", version=ovl_config.version
+            )
+            [ld.unlink(missing_ok=True) for ld in ref_lds]
+### group change ###
+            spinner.message = f"disassembling {len(ref_ovls)} reference overlays"
+            build(ref_lds, dynamic_syms=True, version=ovl_config.version)
+
+### group change ###
+            spinner.message=f"finding files to compare"
+            ref_files, check_files = [], []
+            for dirpath, _, filenames in Path("asm").joinpath(ovl_config.version).walk():
+                if any(ovl.name in dirpath.parts or f"{ovl.name}_psp" in dirpath.parts for ovl in ref_ovls):
+                    ref_files.extend(
+                        dirpath / f
+                        for f in filenames
+                    )
+                if (
+                    ovl_config.name in dirpath.parts
+                    or f"{ovl_config.name}_psp" in dirpath.parts
+                ):
+                    check_files.extend(
+                        dirpath / f
+                        for f in filenames
+                        if f.startswith(f"func_{ovl_config.version}_")
+                        or f.startswith(f"D_{ovl_config.version}_")
+                    )
+### group change ###
+            spinner.message=f"parsing instructions from {len(check_files)} new files and {len(ref_files)} reference files"
+            parsed_files = SimpleNamespace(
+                ref_files=parse_files(ref_files),
+                check_files=parse_files(check_files),
+            )
+        else:
+            parsed_files = None
+### group change ###
+            spinner.message = f"found no reference overlays"            
+
+    if parsed_files:
+        with Spinner(
+            message="searching for similar functions"
+        ) as spinner:
+            matches = find_symbols(
+                parsed_files, ovl_config.version, ovl_config.name, threshold=0.95
+            )
+### group change ###
+            spinner.message = f"Renaming symbols found from {len(matches)} similar functions"
+            num_symbols, unhandled_renames = rename_symbols(ovl_config, matches)
+
+        if num_symbols:
+### group change ###
+            # TODO: Why isn't this showing?
+            spinner.message=f"renamed {num_symbols} symbols from {len(matches)} similar functions, splitting again"
+            git("clean", ovl_config.asm_path)
+            splat_split(ovl_config.config_path, ovl_config.disassemble_all)
+
+    nonmatchings_path = (
+        f"{ovl_config.nonmatchings_path}/{ovl_config.name}_psp"
+        if ovl_config.platform == "psp"
+        else ovl_config.nonmatchings_path
+    )
+    init_room_entities_path = (
+        ovl_config.asm_path
+        / nonmatchings_path
+        / f"first_{ovl_config.name}"
+        / f"InitRoomEntities.s"
+    )
+
+    # Sel has an InitRoomEntities function, but the symbols it references are different
+    if init_room_entities_path.exists() and ovl_config.name != "sel":
+        with Spinner(
+            message=f"parsing InitRoomEntities.s for symbols"
+        ) as spinner:
+            init_room_entities_symbols, create_entity_bss_address = (
+                parse_init_room_entities(
+                    ovl_config.name, ovl_config.platform, init_room_entities_path
+                )
+            )
+
+            # Todo: Add bss segment comment
+            if create_entity_bss_address:
+                create_entity_bss_start = (
+                    create_entity_bss_address - ovl_config.vram + ovl_config.start
+                )
+                create_entity_bss_end = create_entity_bss_start + (
+                    0x18 if ovl_config.platform == "psp" else 0x10
+                )
+
+            if init_room_entities_symbols:
+### group change ###
+                spinner.message = f"adding {len(init_room_entities_symbols)} symbols extracted from InitRoomEntities.s"
+                add_symbols(ovl_config, init_room_entities_symbols)
+
+    with Spinner(
+        message="looking for functions for cross referencing"
+    ) as spinner:
+        parsed_files.check_files = parse_files(
+            dirpath / f
+            for dirpath, _, filenames in ovl_config.asm_path.walk()
+            for f in filenames
+            if not f.startswith(f"func_{ovl_config.version}_")
+            and not f.startswith("D_")
+        )
+        check_files_by_name = {x.path.name: x for x in parsed_files.check_files}
+        ref_files_by_name = defaultdict(list)
+        for ref_file in parsed_files.ref_files:
+            # Todo: Explore the functions that have identical ops, but differing normalized instructions
+            if (
+                ref_file.path.name in check_files_by_name
+                and ref_file.instructions.normalized
+                == check_files_by_name[ref_file.path.name].instructions.normalized
+            ):
+                ref_files_by_name[ref_file.path.name].append(ref_file)
+
+        if check_files_by_name and ref_files_by_name:
+### group change ###
+            spinner.message = f"cross referencing {len(ref_files_by_name)} functions"
+            new_syms = cross_reference_asm(check_files_by_name, ref_files_by_name, ovl_config.name, ovl_config.version)
+            if new_syms:
+### group change ###
+                spinner.message=f"adding {len(new_syms)} cross referenced symbols and splitting again"
+                add_symbols(ovl_config, tuple(new_syms))
+                git("clean", ovl_config.asm_path)
+                splat_split(ovl_config.config_path, ovl_config.disassemble_all)
+
+    git("add", [ovl_config.config_path, ovl_config.ovl_symbol_addrs_path])
+
+    with Spinner(
+        message=f"creating {ovl_config.ld_script_path.with_suffix(".elf")}"
+    ) as spinner:
+        build(
+            [f'{ovl_config.ld_script_path.with_suffix(".elf")}'],
+            version=ovl_config.version,
+        )
+
+### group change ###
+        spinner.message=f"finding segments and splitting source files"
+        first_text_index = next(
+            i for i, subseg in enumerate(ovl_config.subsegments) if "c" in subseg
+        )
+        segments, rodata_segments = find_segments(ovl_config)
+        text_subsegs = [
+            yaml.FlowSegment([segment.offset.int, "c", segment.name])
+            for segment in segments
+        ]
+        rodata_subsegs = [yaml.FlowSegment(x) for x in rodata_segments]
+        ovl_config.subsegments[first_text_index : first_text_index + 1] = text_subsegs
+        first_rodata_index = next(
+            (
+                i
+                for i, subseg in enumerate(ovl_config.subsegments)
+                if ".rodata" in subseg
+            ),
+            None,
+        )
+        if first_rodata_index:
+            ovl_config.subsegments[first_rodata_index : first_rodata_index + 1] = (
+                rodata_subsegs
+            )
+
+    sorted_subsegments = sort_subsegments(ovl_config.subsegments)
+    ovl_config.subsegments = sorted_subsegments
+    ovl_config.write_config()
+    built_bin_path = ovl_config.build_path / ovl_config.target_path.name
+    with Spinner(message=f"building and validating {built_bin_path}"):
+        # TODO: Compare generated offsets to .elf segment offsets
+        git("clean", ovl_config.asm_path)
+        ovl_config.ld_script_path.unlink(missing_ok=True)
+        build(
+            [
+                f"{ovl_config.ld_script_path}",
+                f"{ovl_config.ld_script_path.with_suffix('.elf')}",
+                f"{ovl_config.build_path}/{ovl_config.target_path.name}",
+            ],
+            version=ovl_config.version,
+        )
+        if built_bin_path.exists():
+            built_sha1 = hashlib.sha1(built_bin_path.read_bytes()).hexdigest()
+        else:
+            logger.error(f"{built_bin_path} did not build properly")
+            raise SystemExit
+
+        if built_sha1 != ovl_config.sha1:
+            logger.error(f"{built_bin_path} did not match {ovl_config.target_path}")
+            raise SystemExit
+        else:
+            if ovl_config.symexport_path and ovl_config.symexport_path.exists():
+                git("add", ovl_config.symexport_path)
+            git("add", [ovl_config.config_path, ovl_config.ovl_symbol_addrs_path])
+
+    with Spinner(message="getting suggested segments"):
+        output = splat_split(ovl_config.config_path)
+        splat_suggestions = RE_PATTERNS.splat_suggestions_full.finditer(output)
+
+        suggested_segments = []
+        for match in splat_suggestions:
+            suggestions = RE_PATTERNS.splat_suggestion.findall(
+                match.group("suggestions")
+            )
+            suggested_segments.extend(
+                [offset, segment_type, match.group("segment")]
+                for offset, segment_type in suggestions
+            )
+        # just in case any function got renamed after the files were created
+        spinner.message = "cleaning up e_init.c"
+        e_init_c_path.write_text(re.sub(rf"{ovl_config.name.upper()}_(\w+)\b", r"OVL_EXPORT(\1)", e_init_c_path.read_text()))
+        spinner.message = f"cleaning up {ovl_config.name}.h"
+        ovl_header_text = ovl_header_path.read_text()
+        ovl_header_text = re.sub(rf"{ovl_config.name.upper()}_(\w\w+)\b", r"OVL_EXPORT(\1)", ovl_header_text)
+        entity_enum_pattern = re.compile(r"\s+(?P<e_id>E_[A-Z0-9_]+),\s+//\s+(?:OVL_EXPORT\()?(?P<func>Entity\w+)\)?\b")
+        # TODO: fix spacing after rename
+        ovl_header_lines = [line.replace(m.group("e_id"), f"{RE_PATTERNS.camel_case.sub(r"\1_\2", m.group("func"))}".upper().replace("ENTITY", "E")) if (m := entity_enum_pattern.match(line)) and "DUMMY" not in line else line for line in ovl_header_text.splitlines()]
+        e_id_max_length = max([len(line.split()[0]) for line in ovl_header_lines if "    E_" in line and "//" in line])
+        ovl_header_lines = [f"    {line.split()[0]:<{e_id_max_length}} {' '.join(line.split()[1:])}" if "    E_" in line and "//" in line else line for line in ovl_header_lines]
+        ovl_header_path.write_text("\n".join(ovl_header_lines) + "\n")
+        # with Spinner(message=f"adding header.c") as spinner:
+        # Todo: Build header.c
+        # spinner.message = f"adding e_init.c"
+        # Todo: Parse final entity table and build e_init.c
+
+    # wrap up
+    run_time = time.perf_counter() - start_time
+    if run_time < 60:
+        time_text = f"{round(run_time % 60, 0)} seconds"
+    else:
+        minutes = int(run_time // 60)
+        seconds = round(run_time % 60, 0)
+        minutes_text = f"{minutes}m"
+        seconds_text = f"{int(seconds)}s" if seconds else ""
+        time_text = f"{minutes_text}{seconds_text}"
+    print(f"✅ {args.overlay} ({time_text})")
+
+    if unhandled_renames:
+        print(f"\n{len(unhandled_renames)} unhandled match(es) found, see {Path(args.log).relative_to(Path.cwd())} for details")
+    if suggested_segments:
+        print(f"\n{len(suggested_segments)} additional segments were suggested by Splat:")
+        for segment in suggested_segments:
+            print(f"    - [{segment[0]}, {segment[1]}, {segment[2]}]")
+        logger.info(
+            f"Additional segments suggested by splat: {suggested_segments}"
+        )

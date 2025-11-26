@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 
+import os
+import sys
 import json
-import decomp_utils
+import argparse
+import multiprocessing
 from pathlib import Path
-from concurrent.futures import ProcessPoolExecutor
-
+sys.path.insert(0, str(Path(__file__).parent.parent))
+import yaml_ext as yaml
+from helpers import bar, create_table, Spinner, build, git
+from symbols import extract_dynamic_symbols
+from asm_compare import generate_clusters, parse_files, group_by_hash
 
 def generate_report(clusters, style="single"):
     """Generate a Markdown report of duplicate functions."""
@@ -16,7 +22,7 @@ def generate_report(clusters, style="single"):
         rows.extend(
             [
                 [
-                    decomp_utils.bar((item.score - 0.9) * 1000),
+                    bar((item.score - 0.9) * 1000),
                     "√" if item.decomp_status else "X",
                     item.name,
                     f"{f'{"└╴" if item.indent else "":>{item.indent}}'}{item.path}",
@@ -27,13 +33,23 @@ def generate_report(clusters, style="single"):
         if i < len(clusters) - 1:
             rows.append(divider)
 
-    return decomp_utils.create_table(rows, header=header, style=style)
+    return create_table(rows, header=header, style=style)
 
 
 def main():
     """Main entry point for the script."""
-    arg_parser = decomp_utils.get_argparser(
-        description="Generate a report of duplicates"
+    # set global multiprocessing options
+    multiprocessing.log_to_stderr()
+    multiprocessing.set_start_method("spawn")
+
+    arg_parser = argparse.ArgumentParser(description="Generate a report of duplicates")
+    arg_parser.add_argument(
+        "-v",
+        "--version",
+        required=False,
+        type=str,
+        default=os.getenv("VERSION") or "us",
+        help="Sets game version and overrides VERSION environment variable",
     )
     arg_parser.add_argument(
         "-o",
@@ -71,9 +87,9 @@ def main():
 
     if args.dynamic_symbols:
 # NEW #
-        with decomp_utils.Spinner(message="extracting dynamic symbols") as spinner:
+        with Spinner(message="extracting dynamic symbols") as spinner:
             lds = tuple(
-                Path(decomp_utils.yaml.safe_load(path.open())["options"]["ld_script_path"])
+                Path(yaml.safe_load(path.open())["options"]["ld_script_path"])
                 for path in Path("config").glob(f"splat.{args.version}.*.yaml")
                 if "main" not in path.name and "weapon" not in path.name
             )
@@ -86,17 +102,17 @@ def main():
             )
             if missing_elfs:
                 spinner.message = f"extracting {len(missing_elfs)} missing reference .elf files"
-                decomp_utils.build(missing_elfs, plan=True, version=args.version)
+                build(missing_elfs, plan=True, version=args.version)
             spinner.message="extracting dynamic symbols"
-            decomp_utils.extract_dynamic_symbols(
+            extract_dynamic_symbols(
                 tuple(ld.with_suffix(".elf") for ld in lds), f"build/{args.version}/config/extract_syms.", version=args.version
             )
             [ld.unlink(missing_ok=True) for ld in lds]
             spinner.message="cleaning existing asm"
-            decomp_utils.git("clean", f"asm/{args.version}/")
+            git("clean", f"asm/{args.version}/")
 
             spinner.message = f"disassembling {len(lds)} overlays"
-            decomp_utils.build(lds, dynamic_syms=True, version=args.version)
+            build(lds, dynamic_syms=True, version=args.version)
 
     if args.dump_hashes:
         files = (
@@ -105,15 +121,15 @@ def main():
             if "data" not in dirpath.parts
             for f in filenames
         )
-        funcs_by_op_hash = decomp_utils.group_by_hash(
-            (func.ops.hash, func) for func in decomp_utils.parse_files(files)
+        funcs_by_op_hash = group_by_hash(
+            (func.ops.hash, func) for func in parse_files(files)
         )
         paths_by_op_hash = {
             k: [f"{x.path}" for x in v] for k, v in funcs_by_op_hash.items()
         }
         Path(args.dump_hashes).write_text(json.dumps(paths_by_op_hash))
     else:
-        clusters = decomp_utils.generate_clusters(
+        clusters = generate_clusters(
             args.version, overlays, threshold=0.95, debug=False
         )
         report = generate_report(clusters)

@@ -1,6 +1,6 @@
 # For the convenience of putting all decomp_utils objects in the 'decomp_utils' namespace
 
-import decomp_utils.yaml_ext as yaml
+import yaml_ext as yaml
 from .mips import *
 from .sotn_overlay import *
 from .helpers import *

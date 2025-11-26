@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 import re
-import decomp_utils.yaml_ext as yaml
+import yaml_ext as yaml
 from pathlib import Path
-from decomp_utils.helpers import get_logger, shell
-from decomp_utils.regex import RE_TEMPLATES, RE_PATTERNS
+from helpers import get_logger, shell
+from regex import RE_TEMPLATES, RE_PATTERNS
 from collections import namedtuple
 
 __all__ = [

@@ -11,7 +11,7 @@ import argparse
 import re
 import contextlib
 import splat.scripts.split as split
-import decomp_utils.yaml_ext as yaml
+import yaml_ext as yaml
 from subprocess import run, CalledProcessError
 from logging import LogRecord
 from pathlib import Path
@@ -26,7 +26,6 @@ __all__ = [
     "SotnDecompConsoleFormatter",
     "Spinner",
     "get_repo_root",
-    "get_argparser",
     "get_logger",
     "init_logger",
     "shell",
@@ -162,7 +161,7 @@ def init_logger(
     file_level=logging.INFO,
     console_level=logging.WARNING,
     stdout=True,
-    filename=Path(__file__).parent.parent / "logs" / "sotn_log.json",
+    filename=Path(__file__).parent / "logs" / "sotn_log.json",
 ):
     """Simple wrapper function to make it easier to set up and use custom formatting"""
     if isinstance(filename, (str, Path)):
@@ -203,21 +202,6 @@ def get_repo_root(current_path: Path = Path(__file__).resolve()) -> Path:
             return current_path
         current_path = current_path.parent
     raise FileNotFoundError("Repository root with .git folder not found.")
-
-
-def get_argparser(description):
-    """Sets arguments that are used frequently to enable a consistent user experience"""
-    arg_parser = argparse.ArgumentParser(description=description)
-    arg_parser.add_argument(
-        "-v",
-        "--version",
-        required=False,
-        type=str,
-        default=os.getenv("VERSION") or "us",
-        help="Sets game version and overrides VERSION environment variable",
-    )
-
-    return arg_parser
 
 
 def shell(cmd, env_vars = {}, version="us"):
