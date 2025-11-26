@@ -47,6 +47,7 @@ Additonal notes:
 # Todo: Add g_eRedDoorUV data to e_red_door
 # TODO: Add error handling to functions
 # TODO: Add SrcAsmPair tools/dups/src/main.rs
+# TODO: Parse and add palettes to enum
 """
         SrcAsmPair {
             asm_dir: String::from("../../asm/us/st/are/matchings/"),
@@ -467,6 +468,8 @@ def main(args, start_time):
         entity_enum_pattern = re.compile(r"\s+(?P<e_id>E_[A-Z0-9_]+),\s+//\s+(?:OVL_EXPORT\()?(?P<func>Entity\w+)\)?\b")
         # TODO: fix spacing after rename
         ovl_header_lines = [line.replace(m.group("e_id"), f"{RE_PATTERNS.camel_case.sub(r"\1_\2", m.group("func"))}".upper().replace("ENTITY", "E")) if (m := entity_enum_pattern.match(line)) and "DUMMY" not in line else line for line in ovl_header_text.splitlines()]
+        e_id_max_length = max([len(line.split()[0]) for line in ovl_header_lines if "    E_" in line and "//" in line])
+        ovl_header_lines = [f"    {line.split()[0]:<{e_id_max_length}} {' '.join(line.split()[1:])}" if "    E_" in line and "//" in line else line for line in ovl_header_lines]
         ovl_header_path.write_text("\n".join(ovl_header_lines) + "\n")
         # with decomp_utils.Spinner(message=f"adding header.c") as spinner:
         # Todo: Build header.c
