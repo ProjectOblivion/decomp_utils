@@ -12,6 +12,7 @@ from collections import Counter, deque, defaultdict
 from pathlib import Path
 from types import SimpleNamespace
 from mako.template import Template
+from enum import Enum
 import multiprocessing
 
 """
@@ -29,6 +30,10 @@ __all__ = [
     "create_header_c",
     "parse_init_room_entities",
     "parse_entity_updates",
+    "parse_e_inits",
+    "create_e_init_c",
+    "sort_subsegments",
+    "cross_reference_e_init_c",
     "create_extra_files",
     "ovl_sort",
     "clean_artifacts",
@@ -39,18 +44,211 @@ __all__ = [
 
 logger = decomp_utils.get_logger()
 
-def create_ovl_include(ovl_config):
-    ovl_include_path = (
-        ovl_config.src_path_full.with_name(ovl_config.name) / f"{ovl_config.name}.h"
-    )
+class EnemyDefs(Enum):
+    BlueAxeKnight = 0x006
+    SwordLord = 0x009
+    Skelerang = 0x00B
+    BloodyZombie = 0x00D
+    FlyingZombieHalf1 = 0x00E
+    FlyingZombieHalf2 = 0x00F
+    Diplocephalus = 0x010
+    OwlKnight = 0x014
+    Owl = 0x016
+    LesserDemon = 0x017
+    MermanLvl2 = 0x01B
+    MermanLvl3 = 0x01D
+    Gorgon = 0x01F
+    ArmorLord = 0x022
+    BlackPanther = 0x025
+    DarkOctopus = 0x026
+    FleaMan = 0x028
+    FleaArmor = 0x029
+    WhiteDragon = 0x02B 
+    BoneArk = 0x02D
+    BoneArkSkeleton = 0x02E
+    BoneArkProjectile = 0x2F
+    FleaRider = 0x030
+    Marionette = 0x031
+    OlroxLvl25 = 0x032
+    OlroxLvl0 = 0x037
+    Wereskeleton = 0x03D
+    Bat = 0x040
+    LargeSlime = 0x041
+    Slime = 0x042
+    PhantomSkull = 0x043
+    FlailGuard = 0x044
+    BloodSkeleton = 0x046
+    HellfireBeast = 0x047
+    Skeleton = 0x04B
+    DiscusLordLvl22 = 0x04D
+    DiscusLordLvl0 = 0x04E
+    FireDemon = 0x04F
+    SpittleBone = 0x051
+    SkeletonApe = 0x053
+    StoneRose = 0x055
+    Ectoplasm = 0x058
+    BonePillarLvl1 = 0x05A
+    SpearGuard = 0x05D
+    PlateLord = 0x061
+    FrozenShade = 0x063
+    BoneMusket = 0x066
+    DodoBird = 0x068
+    BoneScimitar = 0x069
+    Toad = 0x06A
+    Frog = 0x06B
+    BoneArcher = 0x06C
+    Zombie = 0x06E
+    GraveKeeper = 0x06F
+    Tombstone = 0x071
+    BlueRaven = 0x072
+    BlackCrow = 0x073
+    JackOBones = 0x074
+    BoneHalberd = 0x076
+    Yorick = 0x078
+    Skull = 0x079
+    BladeMaster = 0x07A
+    BladeSoldier = 0x07C
+    NovaSkeleton = 0x07E
+    WingedGuard = 0x080
+    SpectralSwordNO2 = 0x081
+    Poltergeist = 0x082
+    Lossoth = 0x083
+    ValhallaKnight = 0x085
+    SpectralSwordDAI = 0x088
+    SpectralSwordPuppetSword = 0x089
+    SpectralSwordRDAI = 0x08A
+    Spear = 0x08B
+    Shield = 0x08C
+    Orobourous = 0x08D
+    Oruburos = 0x08E
+    OruburosRider = 0x08F
+    DragonRider1 = 0x090
+    DragonRider2 = 0x091
+    Dhuron = 0x092
+    FireWarg = 0x094
+    WargRider = 0x097
+    CaveTroll = 0x099
+    Ghost = 0x09C
+    Thornweed = 0x09D
+    CorpseweedUnused = 0x09E
+    Corpseweed = 0x09F
+    VenusWeedRoot = 0x0A1
+    VenusWeedFlower = 0x0A2
+    BombKnight = 0x0A5
+    RockKnight = 0x0A7
+    DraculaLvl0 = 0x0A9
+    GreaterDemon = 0x0AC
+    Warg = 0x0AF
+    Slinger = 0x0B2
+    CornerGuard = 0x0B4
+    Bitterfly = 0x0B6
+    BonePillarSkull = 0x0B7
+    BonePillarFireBreath = 0xB8
+    BonePillarSpikedBall = 0x0B9
+    Hammer = 0x0BA
+    Gurkha = 0x0BC
+    Blade = 0x0BE
+    OuijaTable = 0x0C1
+    SniperofGoth = 0x0C3
+    GalamothLvl50 = 0x0C6
+    GalamothLvl0 = 0x0C7
+    Minotaurus = 0x0CB
+    WerewolfARE = 0x0CE
+    Paranthropus = 0x0D3
+    Mudman = 0x0D6
+    GhostDancer = 0x0D8
+    FrozenHalf = 0x0D9
+    SalemWitch = 0x0DD
+    Azaghal = 0x0E0
+    Gremlin = 0x0E1
+    HuntingGirl = 0x0E3
+    VandalSword = 0x0E4
+    Salome = 0x0E5
+    Ctulhu = 0x0E9
+    Malachi = 0x0EC
+    Harpy = 0x0EF
+    Slogra = 0x0F3
+    GreenAxeKnight = 0x0F6
+    Spellbook = 0x0F7
+    MagicTomeLvl8 = 0x0F9
+    MagicTomeLvl12 = 0x0FB
+    Doppleganger10 = 0x0FD
+    Gaibon = 0x0FE
+    SkullLord = 0x105
+    Lion = 0x106
+    Tinman = 0x108
+    AkmodanII = 0x10B
+    Cloakedknight = 0x10F
+    DarkwingBat = 0x111
+    Fishhead = 0x115
+    Karasuman = 0x118
+    Imp = 0x11C
+    Balloonpod = 0x11D
+    Scylla = 0x11F
+    Scyllawyrm = 0x126
+    Granfaloon1 = 0x127
+    Granfaloon2 = 0x128
+    Hippogryph = 0x12C
+    MedusaHead1 = 0x12F
+    MedusaHead2 = 0x130
+    Archer = 0x131
+    RichterBelmont = 0x133
+    Scarecrow = 0x142
+    Schmoo = 0x143
+    Beezelbub = 0x144
+    FakeTrevor = 0x148
+    FakeGrant = 0x14E
+    FakeSypha = 0x151
+    Succubus = 0x156
+    KillerFish = 0x15E
+    Shaft = 0x15F
+    Death1 = 0x164
+    Death2 = 0x169
+    Cerberos = 0x16B
+    Medusa = 0x16E
+    TheCreature = 0x172
+    Doppleganger40 = 0x174
+    DraculaLvl98 = 0x17B
+    StoneSkull = 0x180
+    Minotaur = 0x182
+    WerewolfRARE = 0x185
+    BlueVenusWeed1 = 0x188
+    BlueVenusWeed2 = 0x189
+    Guardian = 0x18C
+
+def create_ovl_include(entity_updates, ovl_name, ovl_type, ovl_include_path):
+    entity_funcs = []
+    if entity_updates:
+        for i, func in enumerate([symbol.name for symbol in entity_updates]):
+            if func == "EntityDummy":
+                entity_funcs.append((func, f"E_DUMMY_{i+1:X}"))
+            elif func.startswith("Entity") or func.startswith("OVL_EXPORT(Entity"):
+                entity_funcs.append(
+                    (
+                        func,
+                        RE_PATTERNS.camel_case.sub(
+                            r"\1_\2", func.replace("OVL_EXPORT(", "").replace(")", "")
+                        )
+                        .upper()
+                        .replace("ENTITY", "E"),
+                    )
+                )
+            elif func == "0x00000000":
+                entity_funcs.append((func, f"NULL"))
+            else:
+                entity_funcs.append((func, f"E_UNK_{i+1:X}"))
+
     template = Template(Path("tools/decomp_utils/templates/ovl.h.mako").read_text())
     ovl_header_text = template.render(
-        ovl_name=ovl_config.name,
-        ovl_type=ovl_config.ovl_type,
-        e_inits=None,
+        ovl_name=ovl_name,
+        ovl_type=ovl_type,
+        entity_updates=entity_funcs,
     )
+
     if not ovl_include_path.exists():
         ovl_include_path.parent.mkdir(parents=True, exist_ok=True)
+        ovl_include_path.write_text(ovl_header_text)
+    elif entity_funcs and "Entities" not in ovl_include_path.read_text():
         ovl_include_path.write_text(ovl_header_text)
 
 def add_sha1_hashes(ovl_config):
@@ -198,7 +396,7 @@ def find_segments(ovl_config):
             )
 
         if segment_meta and not segment_meta.offset:
-            if offset := decomp_utils.get_symbol_offset(ovl_config, current_function):
+            if offset := decomp_utils.get_symbol_offset(ovl_config.ld_script_path.with_suffix(".map"), current_function, ovl_config.vram, ovl_config.start):
                 segment_meta.offset = SimpleNamespace(int=offset)
                 segment_meta.offset.str = f"{segment_meta.offset.int:X}"
             else:
@@ -241,7 +439,7 @@ def find_segments(ovl_config):
                 offset=None,
                 allow=None,
             )
-            if offset := decomp_utils.get_symbol_offset(ovl_config, current_function):
+            if offset := decomp_utils.get_symbol_offset(ovl_config.ld_script_path.with_suffix(".map"), current_function, ovl_config.vram, ovl_config.start):
                 segment_meta.offset = SimpleNamespace(int=offset)
                 segment_meta.offset.str = f"{segment_meta.offset.int:X}"
             else:
@@ -310,7 +508,7 @@ def find_segments(ovl_config):
 
         # Extract rodata symbols from INCLUDE_RODATA macros
         for rodata_symbol in RE_PATTERNS.include_rodata.findall(segment_text):
-            rodata_offset = decomp_utils.get_symbol_offset(ovl_config, rodata_symbol)
+            rodata_offset = decomp_utils.get_symbol_offset(ovl_config.ld_script_path.with_suffix(".map"), rodata_symbol, ovl_config.vram, ovl_config.start)
             if rodata_offset:
                 rodata_subsegments.append(
                     SimpleNamespace(
@@ -668,21 +866,20 @@ def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol=Non
             # Todo: Does this need the filtering, or should it just overwrite the existing regardless?
             for name, address in zip(ovl_header, matches)
         )
-        return {"address": header_address, "size_bytes": (len(header_symbols) - 1) * 4, "symbols": header_symbols}, pStObjLayoutHorizontal_address
+        return {"address": header_address, "size_bytes": len(header_symbols) * 4, "symbols": header_symbols}, pStObjLayoutHorizontal_address
     else:
         return {}
 
-def create_header_c(ovl_config, header_symbols):
-    header_syms = [f"{symbol.name.replace(f'{ovl_config.name.upper()}_', 'OVL_EXPORT(')})" if f"{ovl_config.name.upper()}_" in symbol.name else "NULL" if symbol.name == "0x00000000" else symbol.name for symbol in header_symbols]
+def create_header_c(header_symbols, ovl_name, ovl_type, version, header_path):
+    header_syms = [f"{symbol.name.replace(f'{ovl_name.upper()}_', 'OVL_EXPORT(')})" if f"{ovl_name.upper()}_" in symbol.name else "NULL" if symbol.name == "0x00000000" else symbol.name for symbol in header_symbols]
     template = Template(
         Path("tools/decomp_utils/templates/header.c.mako").read_text()
     )
     new_header = template.render(
-        ovl_header_path=f"{ovl_config.name}.h",
-        ovl_type=ovl_config.ovl_type,
+        ovl_header_path=f"{ovl_name}.h",
+        ovl_type=ovl_type,
         header_syms=header_syms,
     )
-    header_path = ovl_config.src_path_full.parent / ovl_config.name / "header.c"
     if header_path.is_file():
         existing_header = header_path.read_text()
         if new_header != existing_header:
@@ -690,10 +887,32 @@ def create_header_c(ovl_config, header_symbols):
             license = new_lines[0]
             existing_lines = existing_header.rstrip("\n").splitlines()
             existing_lines = existing_lines[1:] if existing_lines[0] == license else existing_lines
-            ifdef = f"#ifdef VERSION_{'PSP' if ovl_config.version=='pspeu' else ovl_config.version.upper()}"
+            ifdef = f"#ifdef VERSION_{'PSP' if version=='pspeu' else version.upper()}"
             new_header = f"{license}\n{ifdef}\n{"\n".join(new_lines[1:])}\n#else\n{'\n'.join(existing_lines)}\n#endif\n"
 
     header_path.write_text(new_header)
+
+def sort_subsegments(subsegments):
+    # the offset is used as a key to intentionally overwrite duplicate offsets, leaving only the longest segment
+    deduped_subsegments = {subsegment[0]:subsegment for subsegment in sorted(subsegments, key=lambda x: (x[0], len(x)))}
+    # sort again to ensure that they're still sorted by offset after dedupe
+    sorted_subsegments = sorted([subsegment for subsegment in deduped_subsegments.values()], key=lambda x: x[0])
+
+    new_subsegments = []
+    next_offset = -1
+    for subsegment in sorted_subsegments:
+        if next_offset == -1 or subsegment[0] == next_offset:
+            new_subsegments.append(subsegment)
+            next_offset = -1
+        elif subsegment[0] > next_offset:
+            new_subsegments.append([next_offset, "data"])
+            new_subsegments.append(subsegment)
+            next_offset = -1
+
+        if len(subsegment) == 4:
+            next_offset = subsegment[0] + subsegment.pop()
+
+    return [decomp_utils.yaml.FlowSegment(x) for x in new_subsegments]
 
 def parse_init_room_entities(ovl_name, platform, init_room_entities_path):
     init_room_entities_map = {
@@ -796,58 +1015,179 @@ def parse_entity_updates(data_file_text, ovl_name, entity_updates_symbol):
 
     # TODO: Why the weird + () ?
     return {"address": entity_updates_address, "first_e_init": first_e_init, "items": parsed_entity_updates, "symbols": symbols + ()}
+
+def cross_reference_e_init_c(check_entity_updates, check_e_inits, ref_e_init_path, ovl_name, map_path):
+    if ref_e_init_path.is_file():
+        symbols = []
+        file_text = ref_e_init_path.read_text()
+        e_init_pattern = re.compile(r"""
+        \nEInit\s+(?P<name>(?:OVL_EXPORT\()?\w+\)?)\s*=\s*\{(?:\s*|\n?)
+        (?P<animSet>(?:ANIMSET_(?:OVL|DRA)\()?(?:0x)?[0-9A-Fa-f]{1,4}\)?)\s*
+        ,\s*(?P<animCurFrame>(?:0x)?[0-9A-Fa-f]{1,4})\s*
+        ,\s*(?P<unk5A>(?:0x)?[0-9A-Fa-f]{1,4})\s*
+        ,\s*(?P<palette>(?:0x)?[0-9A-Fa-f]{1,4}|PAL_[A-Z0-9_]+)\s*
+        ,\s*(?P<enemyID>(?:0x)?[0-9A-Fa-f]{1,4})\};
+        """, re.VERBOSE)
+
+        if check_entity_updates:
+            entity_updates_start = file_text.find("EntityUpdates")
+            entity_updates_end = file_text.find("};", entity_updates_start)
+            ref_entity_updates = [item.strip().replace("OVL_EXPORT(", f"{ovl_name.upper()}_").rstrip(",)") for item in file_text[entity_updates_start:entity_updates_end].splitlines()[1:] if item]
+            if len(check_entity_updates) == len(ref_entity_updates):
+                symbols.extend(decomp_utils.Symbol(to_name, from_symbol.address) for from_symbol, to_name in zip(check_entity_updates, ref_entity_updates))
+
+        if check_e_inits:
+            ref_e_inits = []
+            e_init_idx = file_text.find("EInit")
+            while e_init_idx != -1:
+                if e_init := e_init_pattern.match(file_text[e_init_idx - 1:]):
+                    name = e_init.group("name").replace("OVL_EXPORT(", f"{ovl_name.upper()}_").rstrip(")")
+                    animSet = e_init.group("animSet")
+                    animCurFrame = e_init.group("animCurFrame")
+                    animCurFrame = int(animCurFrame, 16 if "0x" in animCurFrame else 10)
+                    unk5A = e_init.group("unk5A")
+                    unk5A = int(unk5A, 16 if "0x" in unk5A else 10)
+                    palette = e_init.group("palette")
+                    palette = int(palette, 16 if "0x" in palette else 10)
+                    enemyID = e_init.group("enemyID")
+                    ref_e_inits.append((name, animSet, animCurFrame, unk5A, palette, enemyID))
+                e_init_idx = file_text.find("EInit", e_init_idx + 1)
+
+            not_matched = 0
+            for i, ref_e_init in enumerate(ref_e_inits):
+                if i - not_matched < len(check_e_inits):
+                    if ref_e_init[1:] != check_e_inits[i - not_matched][1:]:
+                        not_matched += 1
+                    else:
+                        symbols.append(decomp_utils.Symbol(ref_e_init[0], decomp_utils.get_symbol_address(map_path, check_e_inits[i - not_matched][0])))
+
+        return symbols, len(ref_e_inits) == len(check_e_inits) + not_matched
+    return [], False
+
+def create_e_init_c(entity_updates, e_inits, ovl_name, e_init_c_path):
+    if entity_updates:
         entity_funcs = [
             (
-                f'{line.split()[-1].replace(f"{ovl_config.name.upper()}_", "OVL_EXPORT(")})'
-                if f"{ovl_config.name.upper()}_" in line
-                else line.split()[-1]
+                f"{symbol.name.replace(f'{ovl_name.upper()}_','OVL_EXPORT(')})"
+                if f"{ovl_name.upper()}_" in symbol.name
+                else symbol.name
             )
-            for line in parsed_entity_table
+            for symbol in entity_updates
         ]
-        e_inits = []
-
-        # if the last item is a null address, then it is padding
-        if entity_funcs[-1] == "0x00000000":
-            entity_funcs.pop()
-
-        for i, func in enumerate(entity_funcs):
-            if func == "EntityDummy":
-                e_inits.append((func, f"E_DUMMY_{i+1:X}"))
-            elif func.startswith("Entity") or func.startswith("OVL_EXPORT(Entity"):
-                e_inits.append(
-                    (
-                        func,
-                        RE_PATTERNS.camel_case.sub(
-                            r"\1_\2", func.replace("OVL_EXPORT(", "").replace(")", "")
-                        )
-                        .upper()
-                        .replace("ENTITY", "E"),
-                    )
-                )
-            elif func == "0x00000000":
-                e_inits.append((func, f"NULL"))
-            else:
-                e_inits.append((func, f"E_UNK_{i+1:X}"))
 
         template = Template(
             Path("tools/decomp_utils/templates/e_init.c.mako").read_text()
         )
         output = template.render(
-            ovl_name=ovl_config.name,
+            ovl_name=ovl_name,
             entity_funcs=entity_funcs,
-        )
-        ovl_config.src_path_full.joinpath("e_init.c").write_text(output)
-
-        template = Template(Path("tools/decomp_utils/templates/ovl.h.mako").read_text())
-        output = template.render(
-            ovl_name=ovl_config.name,
-            ovl_type=ovl_config.ovl_type,
             e_inits=e_inits,
         )
-        ovl_config.src_path_full.joinpath(ovl_config.name).with_suffix(".h").write_text(
-            output
-        )
+        e_init_c_path.write_text(output)
+        return True
+    else:
+        return False
 
+def parse_e_inits(data_file_text, first_e_init, ovl_name, platform):
+    e_init_pattern = re.compile(r"""
+    glabel\s+(?P<name>\w+)\n
+    \s+/\*\s+(?P<offset>[0-9A-Fa-f]+)\s+(?P<address>[0-9A-Fa-f]{8})\s+[0-9A-Fa-f]{8}\s+\*/\s+\.word\s+0x(?P<animCurFrame>[0-9A-Fa-f]{4})(?P<animSet>[0-9A-Fa-f]{4})\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+[0-9A-Fa-f]{8}\s+\*/\s+\.word\s+0x(?P<palette>[0-9A-Fa-f]{4})(?P<unk5A>[0-9A-Fa-f]{4})\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+[0-9A-Fa-f]{8}\s+\*/\s+\.word\s+0x0000(?P<enemyID>[0-9A-Fa-f]{4})\n
+    """ + (r"""
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+00000000\s+\*/\s+\.word\s+0x00000000\n
+    """ if platform == "psp" else "") + r"""
+    (?P<size>\.size\s+(?P=name),\s+\.\s+-\s+(?P=name)\n?)?
+    """, re.VERBOSE)
+    unused_e_init_pattern = r"""
+    \s+/\*\s+(?P<offset>[0-9A-Fa-f]+)\s+(?P<address>[0-9A-Fa-f]{8})\s+[0-9A-Fa-f]{8}\s+\*/\s+\.word\s+0x(?P<animCurFrame>[0-9A-Fa-f]{4})(?P<animSet>[0-9A-Fa-f]{4})\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+[0-9A-Fa-f]{8}\s+\*/\s+\.word\s+0x(?P<palette>[0-9A-Fa-f]{4})(?P<unk5A>[0-9A-Fa-f]{4})\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+[0-9A-Fa-f]{8}\s+\*/\s+\.word\s+0x0000(?P<enemyID>[0-9A-Fa-f]{4})\n
+    """
+    split_e_init_pattern = re.compile(r"""
+    glabel\s+(?P<name>\w+)\n
+    \s+/\*\s+(?P<offset>[0-9A-Fa-f]+)\s+(?P<address>[0-9A-Fa-f]{8})\s+(?P<raw_val>[0-9A-Fa-f]{8})\s+\*/\s+\.word\s+0x(?P<animCurFrame>[0-9A-Fa-f]{4})(?P<animSet>[0-9A-Fa-f]{4})\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+\*/\s+\.short\s+0x(?P<unk5A>[0-9A-Fa-f]{4})\n
+    \.size\s+(?P=name),\s+\.\s+-\s+(?P=name)\n
+    \n
+    glabel\s+(?P<pal_sym>\w+)\n
+    \s+/\*\s+(?P<pal_offset>[0-9A-Fa-f]+)\s+(?P<pal_address>[0-9A-Fa-f]{8})\s+\*/\s+\.short\s+0x(?P<palette>[0-9A-Fa-f]{4})\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+[0-9A-Fa-f]{8}\s+\*/\s+\.word\s+0x0000(?P<enemyID>[0-9A-Fa-f]{4})\n
+    """ + (r"""
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+00000000\s+\*/\s+\.word\s+0x00000000\n
+    """ if platform == "psp" else "") + r"""
+    (?P<size>\.size\s+(?P=pal_sym),\s+\.\s+-\s+(?P=pal_sym)\n?)
+    """, re.VERBOSE)
+    short_e_init_pattern = re.compile(r"""
+    glabel\s+(?P<name>\w+)\n
+    \s+/\*\s+(?P<offset>[0-9A-Fa-f]+)\s+(?P<address>[0-9A-Fa-f]{8})\s+\*/\s+\.short\s+0x(?P<animSet>[0-9A-Fa-f]{4})\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+\*/\s+\.short\s+0x(?P<animCurFrame>[0-9A-Fa-f]{4})\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+\*/\s+\.short\s+0x(?P<unk5A>[0-9A-Fa-f]{4})\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+\*/\s+\.short\s+0x(?P<palette>[0-9A-Fa-f]{4})\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+\*/\s+\.short\s+0x(?P<enemyID>[0-9A-Fa-f]{4})\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+\*/\s+\.short\s+0x0000\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+\*/\s+\.short\s+0x0000\n
+    \s+/\*\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+\*/\s+\.short\s+0x0000\n
+    (?P<size>\.size\s+(?P=name),\s+\.\s+-\s+(?P=name)\n?)
+    """, re.VERBOSE)
+
+    known_e_inits = [
+        f"{ovl_name.upper()}_EInitBreakable",
+        "g_EInitObtainable",
+        "g_EInitParticle",
+        "g_EInitSpawner",
+        "g_EInitInteractable",
+        "g_EInitUnkId13",
+        "g_EInitLockCamera",
+        "g_EInitCommon",
+        "g_EInitDamageNum",
+    ]
+
+    text = data_file_text[data_file_text.find(f"glabel {first_e_init}"):]
+    parsed_e_inits = []
+    while not parsed_e_inits or matches:
+        matches = re.match(e_init_pattern, text) or re.match(split_e_init_pattern, text) or (re.match(short_e_init_pattern, text) if platform == "psp" else None)
+        if platform != "psp" and matches and not matches.groupdict().get("size"):
+            size_name = matches.groupdict().get("name")
+            while not matches.groupdict().get("size"):
+                address = int(matches.group("address"), 16)
+                name = matches.groupdict().get("name") or f"g_EInitUnused{address:08X}"
+                animSet = int(matches.group("animSet"), 16)
+                parsed_e_inits.append((
+                    decomp_utils.Symbol(name, address),
+                    f"ANIMSET_{'OVL' if animSet & 0x8000 else 'DRA'}({animSet & ~0x8000})",
+                    int(matches.group("animCurFrame"), 16),
+                    int(matches.group("unk5A"), 16),
+                    int(matches.group("palette"), 16),
+                    int(matches.group("enemyID"), 16),
+                    ))
+                if matches.groupdict().get("size"):
+                    break
+                text = text[matches.end():]
+                unused_last_line_pattern = rf"(?P<size>\.size\s+{size_name},\s+\.\s+-\s+{size_name}\n?)?"
+                matches = re.match(unused_e_init_pattern+unused_last_line_pattern, text, re.VERBOSE)
+
+        if matches:
+            address = int(matches.group("address"), 16)
+            name = matches.groupdict().get("name") or f"g_EInitUnused{address:08X}"
+            animSet = int(matches.group("animSet"), 16)
+            parsed_e_inits.append((
+                decomp_utils.Symbol(name, address),
+                f"ANIMSET_{'OVL' if animSet & 0x8000 else 'DRA'}({animSet & ~0x8000})",
+                int(matches.group("animCurFrame"), 16),
+                int(matches.group("unk5A"), 16),
+                int(matches.group("palette"), 16),
+                int(matches.group("enemyID"), 16),
+                ))
+            text = text[matches.end() + 1:]
+
+    EnemyDefsVals = [x.value for x in EnemyDefs]
+
+    symbols = [decomp_utils.Symbol(name, e_init[0].address) for name, e_init in zip(known_e_inits, parsed_e_inits) if platform != "psp"]
+    symbols.extend(decomp_utils.Symbol(f"g_EInit{EnemyDefs(e_init[5])}".replace("EnemyDefs.", "") if e_init[5] in EnemyDefsVals else e_init[0].name, e_init[0].address) for e_init in parsed_e_inits[len(symbols):])
+    e_inits = [(symbol.name if platform != "psp" else e_init[0].name, e_init[1], e_init[2], e_init[3], e_init[4], f"0x{e_init[5]:03X}") for symbol, e_init in zip(symbols, parsed_e_inits)]
+    next_offset = re.match(r"glabel\s+\w+\n\s+/\*\s+(?P<offset>[0-9A-Fa-f]+)\s+", text)
+    return e_inits, int(next_offset.group("offset"), 16) if next_offset else None, [x for x in symbols if not x.name.startswith("D_")]
 
 def ovl_sort(name):
     game = "dra ric maria "

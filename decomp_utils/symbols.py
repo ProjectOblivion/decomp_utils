@@ -15,6 +15,7 @@ __all__ = [
     "clean_conflicts",
     "find_conflicts",
     "add_symbols",
+    "get_symbol_address",
     "get_symbol_offset",
     "get_symbols",
     "extract_dynamic_symbols",
@@ -254,7 +255,7 @@ def add_symbols(ovl_config, add_symbols):
             dirpath / f
             for dirpath, _, filenames in ovl_config.src_path_full.walk()
             for f in filenames
-            if f.endswith(".c")
+            if f.endswith(".c") or f == f"{ovl_config.name}.h"
         ):
             src_text = src_file.read_text()
             adjusted_text = pattern.sub(
@@ -277,15 +278,20 @@ def add_undefined_symbol(version, symbol, address):
         new_lines = sorted(undefined_syms_lines + [symbol_line], key=symbols_sort)
         undefined_syms.write_text("\n".join(new_lines) + "\n")
 
-def get_symbol_offset(ovl_config, symbol_name):
-    # Todo: Adjust this to be able to handle a config passed as a path
-    match = re.search(
-        RE_TEMPLATES.find_symbol_by_name.substitute(symbol_name=symbol_name),
-        ovl_config.ld_script_path.with_suffix(".map").read_text(),
-    )
-    if match:
-        return int(match.group(1), 16) - ovl_config.vram + ovl_config.start
+def get_symbol_offset(map_path, symbol_name, vram, start):
+    if address := get_symbol_address(map_path, symbol_name):
+        return address - vram + start
     else:
+        return None
+
+def get_symbol_address(map_path, symbol_name):
+    if map_path and map_path.is_file():
+        if match := re.search(RE_TEMPLATES.find_symbol_by_name.substitute(symbol_name=symbol_name), map_path.read_text()):
+            return int(match.group(1), 16)
+        else:
+            return None
+    else:
+        logger.error(f"{map_path} not found")
         return None
 
 

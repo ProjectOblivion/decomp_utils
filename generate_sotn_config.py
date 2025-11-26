@@ -77,7 +77,8 @@ def main(args, start_time):
         for symbol_path in ovl_config.symbol_addrs_path:
             symbol_path.touch(exist_ok=True)
         
-        sotn_config.create_ovl_include(ovl_config)
+        ovl_header_path = ovl_config.src_path_full.parent / ovl_config.name / f"{ovl_config.name}.h"
+        sotn_config.create_ovl_include(None, ovl_config.name, ovl_config.ovl_type, ovl_header_path)
 
 ### group change ###
         spinner.message = f"adding sha1 hashes to check file"
@@ -131,6 +132,12 @@ def main(args, start_time):
                 decomp_utils.Symbol(f"{ovl_config.name.upper()}_Load", stage_init.get("address"))
                 parsed_symbols.append(decomp_utils.Symbol(f"{ovl_config.name.upper()}_Load", stage_init.get("address")))
 
+### group change ###
+        spinner.message = f"building initial {ovl_config.ld_script_path.with_suffix('.elf')}"
+        decomp_utils.build([f"{ovl_config.ld_script_path.with_suffix('.elf')}"], version=ovl_config.version)
+
+### group change ###
+        spinner.message = f"finding the first data file"
         first_data_offset = next(subseg[0] for subseg in ovl_config.subsegments if "data" in subseg)
         first_data_path = ovl_config.asm_path / "data" / f"{first_data_offset:X}.data.s"
         if first_data_path.exists():
@@ -148,23 +155,11 @@ def main(args, start_time):
             )
             if ovl_header.get("symbols"):
                 spinner.message = f"creating {ovl_config.name}/header.c"
-                sotn_config.create_header_c(ovl_config, ovl_header.get("symbols"))
+                sotn_config.create_header_c(ovl_header.get("symbols"), ovl_config.name, ovl_config.ovl_type, ovl_config.version, ovl_config.src_path_full.parent / ovl_config.name / "header.c")
                 spinner.message = f"adding header subsegment"
-                data_subseg_index, data_subseg = next(item for item in enumerate(ovl_config.subsegments) if "data" in item[1])
-                header_offset = (ovl_header["address"] - ovl_config.vram) + 0x80 if ovl_config.platform == "psp" else 0
-                header_subseg = [header_offset, ".data", f"{ovl_config.name}/header" if ovl_config.platform == "psp" else "header"]
-                next_offset = header_offset + ovl_header.get("size_bytes", 0) + 4
-                new_data_subsegs = []
-                if header_offset == data_subseg[0]:
-                    new_data_subsegs.append(header_subseg)
-                    data_subseg[0] += next_offset
-                    first_data_path = first_data_path.with_stem(f"{next_offset:X}.data")
-                    new_data_subsegs.append(data_subseg)
-                else:
-                    new_data_subsegs.append(data_subseg)
-                    new_data_subsegs.append(header_subseg)
-                    new_data_subsegs.append([next_offset, "data"])
-                ovl_config.subsegments[data_subseg_index:data_subseg_index + 1] = [decomp_utils.yaml.FlowSegment(x) for x in new_data_subsegs]
+                header_offset = ovl_header["address"] - ovl_config.vram + ovl_config.start
+                header_subseg = [header_offset, ".data", f"{ovl_config.name}/header" if ovl_config.platform == "psp" else "header", ovl_header.get("size_bytes", 0)]
+                ovl_config.subsegments.append(header_subseg)
             # TODO: Add data segments for follow-on header symbols
             if ovl_config.platform == "psx":
 ### group change ###
@@ -177,12 +172,33 @@ def main(args, start_time):
 
 
 ### group change ###
+        spinner.message="gathering initial symbols"
         if entity_updates.get("name") and first_data_text:
 ### group change ###
-            spinner.message = f"parsing the entity table for symbols"
-            entity_table["address"], entity_table["symbols"] = sotn_config.parse_entity_table(
-                first_data_text, ovl_config.name, entity_table.get("name")
-            )
+            spinner.message = "parsing EntityUpdates"
+            entity_updates.update(sotn_config.parse_entity_updates(first_data_text, ovl_config.name, entity_updates.get("name")))
+### group change ###
+            spinner.message = "parsing EInits"
+            e_inits, next_offset, symbols = sotn_config.parse_e_inits(first_data_text, entity_updates.get("first_e_init"), ovl_config.name, ovl_config.platform)
+            parsed_symbols.extend(symbols)
+            e_init_c_path = ovl_config.src_path_full.with_name(ovl_config.name) / "e_init.c"
+
+### group change ###
+            if ovl_config.version == "us":
+                spinner.message = "creating e_init.c"
+                e_init_success = sotn_config.create_e_init_c(entity_updates.get("items"), e_inits, ovl_config.name, e_init_c_path)
+            else:
+                spinner.message = "cross-referencing e_init.c"
+                e_init_symbols, e_init_success = sotn_config.cross_reference_e_init_c(entity_updates.get("items"), e_inits, e_init_c_path, ovl_config.name, ovl_config.ld_script_path.with_suffix(".map"))
+                parsed_symbols.extend(e_init_symbols)
+
+            entity_updates_offset = entity_updates.get("address", 0) - ovl_config.vram + ovl_config.start
+            if entity_updates_offset > 0:
+                e_init_subseg = [entity_updates_offset, f"{'.' if e_init_success else ''}data", f"{ovl_config.name}/e_init" if ovl_config.platform == "psp" else "e_init", next_offset - entity_updates_offset]
+                ovl_config.subsegments.append(e_init_subseg)
+
+            sotn_config.create_ovl_include(entity_updates.get("items"), ovl_config.name, ovl_config.ovl_type, ovl_header_path)
+
 
         if ovl_header.get("symbols") or entity_updates.get("symbols"):
             parsed_symbols.extend((
@@ -399,6 +415,8 @@ def main(args, start_time):
                 rodata_subsegs
             )
 
+    sorted_subsegments = sotn_config.sort_subsegments(ovl_config.subsegments)
+    ovl_config.subsegments = sorted_subsegments
     ovl_config.write_config()
     built_bin_path = ovl_config.build_path / ovl_config.target_path.name
     with decomp_utils.Spinner(message=f"building and validating {built_bin_path}"):
@@ -440,8 +458,16 @@ def main(args, start_time):
                 [offset, segment_type, match.group("segment")]
                 for offset, segment_type in suggestions
             )
-        spinner.message = "creating extra files"
-        sotn_config.create_extra_files(first_data_path.read_text(), ovl_config)
+        # just in case any function got renamed after the files were created
+        spinner.message = "cleaning up e_init.c"
+        e_init_c_path.write_text(re.sub(rf"{ovl_config.name.upper()}_(\w+)\b", r"OVL_EXPORT(\1)", e_init_c_path.read_text()))
+        spinner.message = f"cleaning up {ovl_config.name}.h"
+        ovl_header_text = ovl_header_path.read_text()
+        ovl_header_text = re.sub(rf"{ovl_config.name.upper()}_(\w\w+)\b", r"OVL_EXPORT(\1)", ovl_header_text)
+        entity_enum_pattern = re.compile(r"\s+(?P<e_id>E_[A-Z0-9_]+),\s+//\s+(?:OVL_EXPORT\()?(?P<func>Entity\w+)\)?\b")
+        # TODO: fix spacing after rename
+        ovl_header_lines = [line.replace(m.group("e_id"), f"{RE_PATTERNS.camel_case.sub(r"\1_\2", m.group("func"))}".upper().replace("ENTITY", "E")) if (m := entity_enum_pattern.match(line)) and "DUMMY" not in line else line for line in ovl_header_text.splitlines()]
+        ovl_header_path.write_text("\n".join(ovl_header_lines) + "\n")
         # with decomp_utils.Spinner(message=f"adding header.c") as spinner:
         # Todo: Build header.c
         # spinner.message = f"adding e_init.c"

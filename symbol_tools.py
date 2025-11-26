@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import decomp_utils
 from pathlib import Path
 
@@ -23,7 +25,7 @@ def main(args):
                 raise FileNotFoundError(f"{args.symbols_path} does not exist")
             decomp_utils.sort_symbols_files(symbols_files)
         case "clean":
-            logger = decomp_utils.init_logger(console_level=20)
+            logger = decomp_utils.init_logger(filename=Path(args.log), console_level=20)
             build_files = {"us": [], "pspeu": [], "hd": []}
             for config_file in args.config_file:
                 _, version, basename, _ = config_file.split(".")
@@ -74,6 +76,13 @@ def main(args):
 if __name__ == "__main__":
     parser = decomp_utils.get_argparser(
         description="Perform operations on game symbols"
+    )
+    parser.add_argument(
+        "-l",
+        "--log",
+        required=False,
+        default=f"{Path(__file__).parent / 'logs' / 'sotn_log.json'}",
+        help="Use an alternate path for the log file"
     )
     subparsers = parser.add_subparsers(dest="command")
     # Todo: Clean up arguments

@@ -444,7 +444,7 @@ class SotnOverlayConfig:
                 if x is not None
             ]
         return self._segments
-
+    # TODO: adjust this so that subsegment types are handled separately and items are cast to FlowSegment when they're added/changed
     @property
     def subsegments(self) -> List[Any]:
         if not self._subsegments and self.platform == "psx":
@@ -509,6 +509,11 @@ class SotnOverlayConfig:
                 if x is not None
             ]
         return self._subsegments
+
+    @subsegments.setter
+    def subsegments(self, value):
+        self._segments = None
+        self._subsegments = value
 
     @property
     def bin_bytes(self) -> bytes:

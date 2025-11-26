@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import json
 import decomp_utils
 from pathlib import Path

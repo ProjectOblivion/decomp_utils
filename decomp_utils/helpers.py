@@ -377,7 +377,7 @@ def build(targets=[], plan=True, dynamic_syms=False, build=True, version="us"):
         Path(f"build/{version}/").mkdir(parents=True, exist_ok=True)
         shell(f"python3 tools/builds/gen.py build/{version}/build.ninja", env_vars=env_vars, version=version)
     if build:
-        return shell(f'ninja -f build/{version}/build.ninja {" ".join(f"{x}" for x in targets)}', version=version)
+        return shell(f"ninja -f build/{version}/build.ninja {' '.join(f"{x}" for x in targets)}", version=version)
 
 
 def splat_split(config_path, disassemble_all=True):

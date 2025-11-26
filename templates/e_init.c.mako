@@ -10,3 +10,10 @@ PfnEntityUpdate OVL_EXPORT(EntityUpdates)[] = {
     ${function},
 % endfor
 };
+
+// clang-format off
+// animSet, animCurFrame, unk5A, palette, enemyID
+% for name, animSet, animCurFrame, unk5A, palette, enemyID in e_inits:
+EInit ${name} = {${animSet}, ${animCurFrame}, ${unk5A}, ${palette}, ${enemyID}};
+% endfor
+// clang-format on

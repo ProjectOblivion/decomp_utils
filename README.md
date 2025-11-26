@@ -12,6 +12,10 @@ Known limitations:
 * It is currently heavily biased toward [sotn-decomp](https://github.com/Xeeynamo/sotn-decomp) and will require a lot of adjustments to be useful for any other project.
 * This project should be considered to be in a pre-alpha state.  As such, doc strings, type hints, and other non-functional elements are sporadic at best.
 
+## Known Issues
+### Castlevania: SOTN
+- RODATA in wrong segment when it falls before it's function and that function is on a segment boundary
+
 ## Project tasks, in no particular order or timeline
 * Adding "polish" like proper docstrings, type hints, pep8 compliance, etc.
 * Implementing and eliminating "todo" comments
