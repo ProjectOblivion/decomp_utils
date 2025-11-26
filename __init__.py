@@ -1,4 +1,4 @@
-# For the convenience of putting all decomp_utils objects in the 'decomp_utils' namespace
+# For the convenience of putting all sotn_utils objects in the 'sotn_utils' namespace
 
 import yaml_ext as yaml
 from .mips import *

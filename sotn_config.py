@@ -276,7 +276,7 @@ def create_ovl_include(entity_updates, ovl_name, ovl_type, ovl_include_path):
             else:
                 entity_funcs.append((func, f"E_UNK_{i+1:X}"))
 
-    template = Template(Path("tools/decomp_utils/templates/ovl.h.mako").read_text())
+    template = Template((Path(__file__).parent / "templates" / "ovl.h.mako").read_text())
     ovl_header_text = template.render(
         ovl_name=ovl_name,
         ovl_type=ovl_type,
@@ -339,7 +339,7 @@ def find_psx_entity_updates(first_data_text, pStObjLayoutHorizontal_address = No
 # TODO: Use mipsmatch to supplement segments.yaml
 # TODO: mipsmatch scan some.yaml another.yaml evenmore.yaml import.bin for the bin you're importing
 def get_known_starts(
-    ovl_name, version, segments_path=Path("tools/decomp_utils/segments.yaml")
+    ovl_name, version, segments_path=Path(__file__).parent / "segments.yaml"
 ):
     segments_config = yaml.safe_load(segments_path.read_text())
     known_segments = []
@@ -910,7 +910,7 @@ def parse_ovl_header(data_file_text, name, platform, ovl_type, header_symbol=Non
 def create_header_c(header_symbols, ovl_name, ovl_type, version, header_path):
     header_syms = [f"{symbol.name.replace(f'{ovl_name.upper()}_', 'OVL_EXPORT(')})" if f"{ovl_name.upper()}_" in symbol.name else "NULL" if symbol.name == "0x00000000" else symbol.name for symbol in header_symbols]
     template = Template(
-        Path("tools/decomp_utils/templates/header.c.mako").read_text()
+        (Path(__file__).parent / "templates" / "header.c.mako").read_text()
     )
     new_header = template.render(
         ovl_header_path=f"{ovl_name}.h",
@@ -1113,7 +1113,7 @@ def create_e_init_c(entity_updates, e_inits, ovl_name, e_init_c_path):
         ]
 
         template = Template(
-            Path("tools/decomp_utils/templates/e_init.c.mako").read_text()
+            (Path(__file__).parent / "templates" / "e_init.c.mako").read_text()
         )
         output = template.render(
             ovl_name=ovl_name,
