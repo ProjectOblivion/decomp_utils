@@ -11,7 +11,7 @@ import argparse
 import re
 import contextlib
 import splat.scripts.split as split
-import yaml_ext as yaml
+import sotn_utils.yaml_ext as yaml
 from subprocess import run, CalledProcessError
 from logging import LogRecord
 from pathlib import Path

@@ -6,7 +6,7 @@ from pathlib import Path
 from collections import defaultdict, deque
 from hashlib import sha1
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from regex import RE_PATTERNS
+from sotn_utils.regex import RE_PATTERNS
 import Levenshtein
 
 __all__ = [

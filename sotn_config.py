@@ -4,31 +4,18 @@ import re
 import shutil
 import time
 import hashlib
-from regex import RE_TEMPLATES, RE_PATTERNS
+from sotn_utils.regex import RE_TEMPLATES, RE_PATTERNS
 from concurrent.futures import ProcessPoolExecutor
 from collections import Counter, deque, defaultdict
 from pathlib import Path
 from types import SimpleNamespace
 from mako.template import Template
 from enum import Enum
-from helpers import get_logger
-from helpers import Spinner
-from sotn_overlay import SotnOverlayConfig
-from helpers import git
-from symbols import get_symbol_offset
-from asm_compare import group_by_hash
-from asm_compare import get_buckets
-from asm_compare import find_matches
-from asm_compare import group_results
-from symbols import Symbol
-from symbols import add_symbols
-from symbols import get_symbol_address
-from helpers import splat_split
-from helpers import build
-from symbols import extract_dynamic_symbols
-from asm_compare import parse_files
-from symbols import cross_reference_asm
-import yaml_ext as yaml
+from sotn_utils.helpers import get_logger, Spinner, git, splat_split, build
+from sotn_utils.sotn_overlay import SotnOverlayConfig
+from sotn_utils.symbols import get_symbol_offset, Symbol, add_symbols, get_symbol_address, extract_dynamic_symbols, cross_reference_asm
+from sotn_utils.asm_compare import group_by_hash, get_buckets, find_matches, group_results, parse_files
+import sotn_utils.yaml_ext as yaml
 
 """
 Code for handling the creation of Castlevania SOTN Splat configs
@@ -63,7 +50,6 @@ __all__ = [
     "find_symbols",
     "rename_symbols",
     "parse_psp_stage_init",
-    "parse_psp_weapon_load",
     "parse_ovl_header",
     "create_header_c",
     "parse_init_room_entities",
@@ -72,12 +58,12 @@ __all__ = [
     "create_e_init_c",
     "sort_subsegments",
     "cross_reference_e_init_c",
-    "create_extra_files",
     "ovl_sort",
     "clean_artifacts",
     "create_ovl_include",
     "add_sha1_hashes",
     "find_psx_entity_updates",
+    "extract",
 ]
 
 logger = get_logger()

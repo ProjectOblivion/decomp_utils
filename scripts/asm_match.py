@@ -6,11 +6,9 @@ import json
 import argparse
 import multiprocessing
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-import yaml_ext as yaml
-from helpers import bar, create_table, Spinner, build, git
-from symbols import extract_dynamic_symbols
-from asm_compare import generate_clusters, parse_files, group_by_hash
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+import sotn_utils
+import sotn_utils.yaml_ext as yaml
 
 def generate_report(clusters, style="single"):
     """Generate a Markdown report of duplicate functions."""
@@ -22,7 +20,7 @@ def generate_report(clusters, style="single"):
         rows.extend(
             [
                 [
-                    bar((item.score - 0.9) * 1000),
+                    sotn_utils.bar((item.score - 0.9) * 1000),
                     "√" if item.decomp_status else "X",
                     item.name,
                     f"{f'{"└╴" if item.indent else "":>{item.indent}}'}{item.path}",
@@ -33,7 +31,7 @@ def generate_report(clusters, style="single"):
         if i < len(clusters) - 1:
             rows.append(divider)
 
-    return create_table(rows, header=header, style=style)
+    return sotn_utils.create_table(rows, header=header, style=style)
 
 
 def main():
@@ -87,7 +85,7 @@ def main():
 
     if args.dynamic_symbols:
 # NEW #
-        with Spinner(message="extracting dynamic symbols") as spinner:
+        with sotn_utils.Spinner(message="extracting dynamic symbols") as spinner:
             lds = tuple(
                 Path(yaml.safe_load(path.open())["options"]["ld_script_path"])
                 for path in Path("config").glob(f"splat.{args.version}.*.yaml")
@@ -102,17 +100,17 @@ def main():
             )
             if missing_elfs:
                 spinner.message = f"extracting {len(missing_elfs)} missing reference .elf files"
-                build(missing_elfs, plan=True, version=args.version)
+                sotn_utils.build(missing_elfs, plan=True, version=args.version)
             spinner.message="extracting dynamic symbols"
-            extract_dynamic_symbols(
+            sotn_utils.extract_dynamic_symbols(
                 tuple(ld.with_suffix(".elf") for ld in lds), f"build/{args.version}/config/extract_syms.", version=args.version
             )
             [ld.unlink(missing_ok=True) for ld in lds]
             spinner.message="cleaning existing asm"
-            git("clean", f"asm/{args.version}/")
+            sotn_utils.git("clean", f"asm/{args.version}/")
 
             spinner.message = f"disassembling {len(lds)} overlays"
-            build(lds, dynamic_syms=True, version=args.version)
+            sotn_utils.build(lds, dynamic_syms=True, version=args.version)
 
     if args.dump_hashes:
         files = (
@@ -121,15 +119,15 @@ def main():
             if "data" not in dirpath.parts
             for f in filenames
         )
-        funcs_by_op_hash = group_by_hash(
-            (func.ops.hash, func) for func in parse_files(files)
+        funcs_by_op_hash = sotn_utils.group_by_hash(
+            (func.ops.hash, func) for func in sotn_utils.parse_files(files)
         )
         paths_by_op_hash = {
             k: [f"{x.path}" for x in v] for k, v in funcs_by_op_hash.items()
         }
         Path(args.dump_hashes).write_text(json.dumps(paths_by_op_hash))
     else:
-        clusters = generate_clusters(
+        clusters = sotn_utils.generate_clusters(
             args.version, overlays, threshold=0.95, debug=False
         )
         report = generate_report(clusters)

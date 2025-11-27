@@ -5,9 +5,8 @@ import sys
 import argparse
 import multiprocessing
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from helpers import init_logger
-from sotn_config import extract
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from sotn_utils import init_logger, extract
 
 """
 Handles many tasks for adding an overlay:
@@ -26,7 +25,7 @@ Handles many tasks for adding an overlay:
 
 Example usage: tools/extract_overlay.py lib -v us,pspeu
 
-Additonal notes:
+Additional notes:
 - If a segment has only one function, it is named as that function in snake case.  If the function name starts with Entity, it replaces it with 'e'.
     For example: A segment with the only function being EntityShuttingWindow would be named as e_shutting_window
 """
@@ -66,13 +65,14 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    logger = init_logger(filename=args.log)
+    init_logger(filename=args.log)
 
     if not args.version:
         args.version.append(os.getenv("VERSION"))
     else:
-        # split and flatten
-        args.version = {x.strip() for y in [ver.split(",") if "," in ver else [ver] for ver in args.version] for x in y}
+        # split, flatten, and dedup version args
+        split_versions = [val.split(",") if "," in val else [val] for val in args.version]
+        args.version = {version.strip() for versions in split_versions for version in versions}
 
     if args.version and None not in args.version:
         unsupported_versions = [ver for ver in args.version if ver not in ["us", "pspeu", "hd", "all"]]

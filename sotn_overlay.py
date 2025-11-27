@@ -1,9 +1,9 @@
 from __future__ import annotations
 import struct
 import hashlib
-import yaml_ext as yaml
-import mips as mips
-from helpers import get_logger
+import sotn_utils.yaml_ext as yaml
+import sotn_utils.mips as mips
+from sotn_utils.helpers import get_logger
 from pathlib import Path
 from types import SimpleNamespace
 
