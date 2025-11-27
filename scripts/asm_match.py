@@ -107,7 +107,7 @@ def main():
             )
             [ld.unlink(missing_ok=True) for ld in lds]
             spinner.message="cleaning existing asm"
-            sotn_utils.git("clean", f"asm/{args.version}/")
+            sotn_utils.shell(f"git clean -fdx asm/{args.version}/")
 
             spinner.message = f"disassembling {len(lds)} overlays"
             sotn_utils.build(lds, dynamic_syms=True, version=args.version)

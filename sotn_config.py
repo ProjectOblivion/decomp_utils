@@ -11,9 +11,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from mako.template import Template
 from enum import Enum
-from sotn_utils.helpers import get_logger, Spinner, git, splat_split, build
+from sotn_utils.helpers import get_logger, Spinner, splat_split, build, shell
 from sotn_utils.sotn_overlay import SotnOverlayConfig
-from sotn_utils.symbols import get_symbol_offset, Symbol, add_symbols, get_symbol_address, extract_dynamic_symbols, cross_reference_asm
+from sotn_utils.symbols import get_symbol_offset, Symbol, add_symbols, get_symbol_address, extract_dynamic_symbols, cross_reference_asm, add_undefined_symbol
 from sotn_utils.asm_compare import group_by_hash, get_buckets, find_matches, group_results, parse_files
 import sotn_utils.yaml_ext as yaml
 
@@ -294,8 +294,6 @@ def add_sha1_hashes(ovl_config):
         # Todo: Order the sha1 lines correctly
         sorted_lines = sorted(new_lines, key=lambda x: ovl_sort(x.split()[-1]))
         check_file_path.write_text(f"{"\n".join(sorted_lines)}\n")
-
-    git("add", check_file_path)
 
 def find_psx_entity_updates(first_data_text, pStObjLayoutHorizontal_address = None):
     # TODO: Find a less complicated way to handle this
@@ -1251,7 +1249,7 @@ def can_extract(overlay):
 def clean_artifacts(ovl_config, full_clean = False, spinner=SimpleNamespace(message="")):
     if (asm_path := Path(f"asm/{ovl_config.version}")).exists():
         spinner.message=f"Cleaning {asm_path}"
-        git("clean", asm_path)
+        shell(f"git clean -fdx {asm_path}")
 
     spinner.message=f"Removing {ovl_config.ld_script_path}"
     ovl_config.ld_script_path.unlink(missing_ok=True)
@@ -1367,7 +1365,6 @@ def extract(args, version):
 ### group change ###
                 spinner.message = "creating symexport file"
                 ovl_config.symexport_path.write_text("\n".join(symexport_lines))
-                git("add", ovl_config.symexport_path)
 
             if stage_init.get("address"):
                 Symbol(f"{ovl_config.name.upper()}_Load", stage_init.get("address"))
@@ -1460,9 +1457,7 @@ def extract(args, version):
 ### group change ###
             spinner.message = f"adding {len(parsed_symbols)} parsed symbols and splitting using updated symbols"
             add_symbols(ovl_config, parsed_symbols)
-            add_files = tuple(f"{x}" for x in [ovl_config.config_path, ovl_config.ovl_symbol_addrs_path, ovl_config.symexport_path] if x and x.exists())
-            git("add", add_files)
-            git("clean", ovl_config.asm_path)
+            shell(f"git clean -fdx {ovl_config.asm_path}")
             splat_split(ovl_config.config_path)
 
     with Spinner(
@@ -1549,7 +1544,7 @@ def extract(args, version):
 ### group change ###
             # TODO: Why isn't this showing?
             spinner.message=f"renamed {num_symbols} symbols from {len(matches)} similar functions, splitting again"
-            git("clean", ovl_config.asm_path)
+            shell(f"git clean -fdx {ovl_config.asm_path}")
             splat_split(ovl_config.config_path, ovl_config.disassemble_all)
 
     nonmatchings_path = (
@@ -1618,10 +1613,8 @@ def extract(args, version):
 ### group change ###
                 spinner.message=f"adding {len(new_syms)} cross referenced symbols and splitting again"
                 add_symbols(ovl_config, tuple(new_syms))
-                git("clean", ovl_config.asm_path)
+                shell(f"git clean -fdx {ovl_config.asm_path}")
                 splat_split(ovl_config.config_path, ovl_config.disassemble_all)
-
-    git("add", [ovl_config.config_path, ovl_config.ovl_symbol_addrs_path])
 
     with Spinner(
         message=f"creating {ovl_config.ld_script_path.with_suffix(".elf")}"
@@ -1662,7 +1655,7 @@ def extract(args, version):
     built_bin_path = ovl_config.build_path / ovl_config.target_path.name
     with Spinner(message=f"building and validating {built_bin_path}"):
         # TODO: Compare generated offsets to .elf segment offsets
-        git("clean", ovl_config.asm_path)
+        shell(f"git clean -fdx {ovl_config.asm_path}")
         ovl_config.ld_script_path.unlink(missing_ok=True)
         build(
             [
@@ -1681,10 +1674,6 @@ def extract(args, version):
         if built_sha1 != ovl_config.sha1:
             logger.error(f"{built_bin_path} did not match {ovl_config.target_path}")
             raise SystemExit
-        else:
-            if ovl_config.symexport_path and ovl_config.symexport_path.exists():
-                git("add", ovl_config.symexport_path)
-            git("add", [ovl_config.config_path, ovl_config.ovl_symbol_addrs_path])
 
     with Spinner(message="getting suggested segments"):
         output = splat_split(ovl_config.config_path)

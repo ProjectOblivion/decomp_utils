@@ -33,7 +33,6 @@ __all__ = [
     "bar",
     "splat_split",
     "build",
-    "git"
 ]
 
 class TTY(StrEnum):
@@ -376,18 +375,6 @@ def splat_split(config_path, disassemble_all=True):
             disassemble_all=disassemble_all,
         )
     return output.getvalue()
-
-def git(cmd, path):
-    if isinstance(path, (list,tuple)):
-        path = " ".join(f"{x}" for x in path)
-
-    match cmd:
-        case "add":
-            shell(f"git add {path}")
-        case "clean":
-            shell(f"git clean -fdx {path}")
-        case "reset":
-            shell(f"git checkout {path}")
 
 def mipsmatch(version, ref_ovls, bin_path):
     segments = []
