@@ -271,7 +271,7 @@ def add_symbols(ovl_config, add_symbols):
             ovl_config.symexport_path.write_text(adjusted_text)
 
 def add_undefined_symbol(version, symbol, address):
-    symbol_line = f"{symbol}{' '*13}= 0x{address:X};"
+    symbol_line = f"{symbol} = 0x{address:08X};"
     undefined_syms = Path(f"config/undefined_syms.{version}.txt")
     undefined_syms_lines = undefined_syms.read_text().splitlines()
     if symbol_line not in undefined_syms_lines:

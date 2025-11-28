@@ -203,12 +203,13 @@ def get_repo_root(current_path: Path = Path(__file__).resolve()) -> Path:
     raise FileNotFoundError("Repository root with .git folder not found.")
 
 
-def shell(cmd, env_vars = {}, version="us"):
+def shell(cmd, env_vars = {}, version=None):
     """Executes a string as a shell command and returns its output"""
     # Todo: Add both list and string handling
     env = os.environ.copy()
     # Ensure the correct VERSION is passed
-    env["VERSION"] = version
+    if version:
+        env["VERSION"] = version
     env.update(env_vars)
     cmd_output = run(cmd.split(), env=env, capture_output=True)
     if cmd_output.returncode != 0:
