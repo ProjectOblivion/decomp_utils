@@ -1,3 +1,4 @@
+# This template file is not yet used
 options:
   platform: ${platform}
   basename: ${basename}

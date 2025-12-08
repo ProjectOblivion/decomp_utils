@@ -24,12 +24,8 @@ RE_STRINGS = namedtuple("ReStrings", ["psp_entity_table", "psp_ovl_header"])(
 )
 RE_TEMPLATES = namedtuple(
     "ReTemplates",
-    ["sym_replace", "find_symbol_by_name", "rodata_offset", "asm_symbol_offset"],
+    ["rodata_offset", "asm_symbol_offset"],
 )(
-    sym_replace=Template(r"(?:D_|func_)${sym_prefix}(${symbols_list})"),
-    find_symbol_by_name=Template(
-        r"\n\s+0x(?P<address>[A-Fa-f0-9]{8})\s+${symbol_name}\n"
-    ),
     rodata_offset=Template(
         r"glabel (?:jtbl|D)_${version}_[0-9A-F]{8}\n\s+/\*\s(?P<offset>[0-9A-F]{1,5})\s"
     ),
@@ -57,12 +53,6 @@ RE_PATTERNS = namedtuple(
         "psp_ovl_header_entity_table_pattern",
         "symbol_line_pattern",
         "init_room_entities_symbol_pattern",
-        "ref_pattern",
-        "cross_ref_name_pattern",
-        "cross_ref_address_pattern",
-        "splat_suggestions_full",
-        "splat_suggestion",
-        "existing_symbols",
     ],
 )(
     symbol_file_line=re.compile(r"(?P<name>\w+)\s*=\s*0x(?P<address>[A-Fa-f0-9]{8});(?:\s*//\s*(?P<comment>.*))?\n"),
@@ -129,19 +119,4 @@ RE_PATTERNS = namedtuple(
     init_room_entities_symbol_pattern=re.compile(
         r"\s+/\*\s[0-9A-F]{1,5}\s[0-9A-F]{8}\s[0-9A-F]{8}\s\*/\s+[a-z]{1,5}[ \t]*\$\w+,\s%hi\(D_(?:\w+_)?(?P<address>[A-F0-9]{8})\)\s*"
     ),
-    ref_pattern=re.compile(r"splat\.\w+\.(?P<prefix>st|bo)(?P<ref_ovl>\w+)\.yaml"),
-    cross_ref_name_pattern=re.compile(r"lui\s+.+?%hi\(((?:[A-Z]|g_|func_)\w+)\)"),
-    cross_ref_address_pattern=re.compile(
-        r"lui\s+.+?%hi\((?:D_|func_)(?:\w+_)?([A-F0-9]{8})\)"
-    ),
-    splat_suggestions_full=re.compile(
-        r"""
-        The\srodata\ssegment\s'(?P<segment>\w+)'\shas\sjumptables.+\n
-        File\ssplit\ssuggestions.+\n
-        (?P<suggestions>(?:\s+-\s+\[0x[0-9A-Fa-f]+,\s.+?\]\n)+)\n
-        """,
-        re.VERBOSE,
-    ),
-    splat_suggestion=re.compile(r"\s+-\s+\[(0x[0-9A-Fa-f]+),\s(.+?)\]"),
-    existing_symbols=re.compile(r"(?P<name>\w+)\s=\s0x(?P<address>[A-Fa-f0-9]{8})"),
 )

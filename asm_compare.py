@@ -7,6 +7,7 @@ from collections import defaultdict, deque
 from hashlib import sha1
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from sotn_utils.regex import RE_PATTERNS
+from sotn_utils.helpers import Symbol
 import Levenshtein
 
 __all__ = [
@@ -15,11 +16,12 @@ __all__ = [
     "compare",
     "group_results",
     "build_hierarchy",
-    "parse_files",
+    "parse_asm_files",
     "find_matches",
     "generate_clusters",
     "best_results",
     "Result",
+    "cross_reference_asm",
 ]
 
 AsmLine = namedtuple("AsmLine", ["offset", "address", "word", "op", "fields"])
@@ -96,7 +98,7 @@ def generate_clusters(version, overlays, threshold=0.95, exclude=[], debug=False
         for f in filenames
     )
     funcs_by_op_hash = group_by_hash(
-        (func.ops.hash, func) for func in parse_files(files)
+        (func.ops.hash, func) for func in parse_asm_files(files)
     )
     ops_by_op_hash = {k: v[0].ops.parsed for k, v in funcs_by_op_hash.items()}
     buckets = get_buckets((ops_by_op_hash,), tolerance=0.1, num_buckets=25)
@@ -140,7 +142,16 @@ def best_results(results):
     )
 
 
-def parse_file(path, parse_instructions=True, parse_jtbls=False):
+def parse_asm_files(files):
+    with ThreadPoolExecutor() as executor:
+        parsed_files = tuple(
+            parsed_asm
+            for parsed_asm in executor.map(parse_asm_file, files)
+            if parsed_asm.ops
+        )
+    return parsed_files
+
+def parse_asm_file(path, parse_instructions=True, parse_jtbls=False):
     parsed_ops, parsed_instructions, parsed_jtbls = None, None, None
     file_bytes = path.read_bytes()
     # file_hash = sha1(file_bytes).hexdigest()
@@ -221,16 +232,6 @@ def parse_file(path, parse_instructions=True, parse_jtbls=False):
         )
 
     return ParsedAsmFile(path, file_hash, parsed_ops, parsed_instructions, parsed_jtbls)
-
-
-def parse_files(files):
-    with ThreadPoolExecutor() as executor:
-        parsed_files = tuple(
-            parsed_asm
-            for parsed_asm in executor.map(parse_file, files)
-            if parsed_asm.ops
-        )
-    return parsed_files
 
 
 def group_by_hash(funcs, hash_type=""):
@@ -484,3 +485,54 @@ def build_hierarchy(full_matches, grouped_results):
         if op_hash not in child_map and op_hash not in score_map
     )
     return hierarchy
+
+# TODO: Clean up this logic
+cross_ref_name_pattern=re.compile(r"lui\s+.+?%hi\(((?:[A-Z]|g_|func_)\w+)\)")
+cross_ref_address_pattern=re.compile(
+    r"lui\s+.+?%hi\((?:D_|func_)(?:\w+_)?([A-F0-9]{8})\)"
+)
+symbol_ovl_name_prefix_pattern=re.compile(r"^[^U][A-Z0-9]{2,3}_")
+def cross_reference_asm(parsed_check_files, parsed_ref_files, ovl_name, version):
+    new_syms = set()
+    check_files_by_name = {x.path.name: x for x in parsed_check_files}
+    ref_files_by_name = defaultdict(list)
+    for ref_file in parsed_ref_files:
+        # Todo: Explore the functions that have identical ops, but differing normalized instructions
+        if (
+            ref_file.path.name in check_files_by_name
+            and ref_file.instructions.normalized
+            == check_files_by_name[ref_file.path.name].instructions.normalized
+        ):
+            ref_files_by_name[ref_file.path.name].append(ref_file)
+
+    if check_files_by_name and ref_files_by_name:
+        for file_name, files in ref_files_by_name.items():
+            parsed_check_file = check_files_by_name[file_name]
+            for parsed_ref_file in files:
+                for ref_instruction, check_instruction in zip(
+                    parsed_ref_file.instructions.parsed,
+                    parsed_check_file.instructions.parsed,
+                ):
+                    # Todo: Warn if a symbol is not default and does not match the cross referenced symbol
+                    name = cross_ref_name_pattern.match(ref_instruction)
+                    address = cross_ref_address_pattern.match(
+                        check_instruction
+                    )
+                    if (
+                        name
+                        and not name.group(1).startswith("D_")
+                        and not name.group(1).startswith(
+                            f"func_{version}_"
+                        )
+                        and address
+                    ):
+                        new_syms.add(
+                            Symbol(
+                                symbol_ovl_name_prefix_pattern.sub(
+                                    ovl_name.upper(), name.group(1)
+                                ),
+                                int(address.group(1), 16),
+                            )
+                        )
+
+    return new_syms

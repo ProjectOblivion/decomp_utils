@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-#include "${ovl_header_path}"
+#include "${ovl_include_path}"
 % if header_syms[7] != "NULL":
 % if ovl_type == "stage":
 #include "../pfn_entity_update.h"
