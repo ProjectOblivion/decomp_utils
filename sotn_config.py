@@ -308,11 +308,13 @@ def get_known_starts(
     known_segments = []
     # Todo: Simplify this logic
     for label, values in segments_config.items():
-        if not values:
+        if not values or "functions" not in values:
             continue
 
         if "ovl" not in values or ovl_name in values["ovl"]:
-            if isinstance(values["start"], str):
+            if "start" not in values:
+                starts = [values["functions"][0]]
+            elif isinstance(values["start"], str):
                 starts = [values["start"]]
             elif isinstance(values["start"], list):
                 starts = values["start"]
@@ -321,19 +323,15 @@ def get_known_starts(
 
             if "end" in values and isinstance(values["end"], str):
                 end = values["end"]
-            elif "allow" not in values:
-                end = starts[0]
-            elif isinstance(values["allow"], list):
-                end = ""
             else:
-                continue
+                end = ""
 
             known_segments.extend(
                 SimpleNamespace(
                     name=values.get("name", label).replace("${prefix}", ovl_name.upper()),
                     start=start.replace("${prefix}", ovl_name.upper()),
                     end=end.replace("${prefix}", ovl_name.upper()),
-                    allow=tuple(v.replace("${prefix}", ovl_name.upper()) for v in values.get("allow", [])) or None
+                    allow=tuple(v.replace("${prefix}", ovl_name.upper()) for v in values.get("functions", [])) or None
                 )
                 for start in starts
             )
@@ -353,16 +351,26 @@ def find_segments(ovl_config, file_header):
     matches = RE_PATTERNS.include_asm.findall(src_text)
     for i, match in enumerate(matches):
         asm_dir, current_function = match
+        current_function_parts = current_function.split("_")
+        if current_function.startswith(f"func_{ovl_config.version}_"):
+            current_function_stem = "_".join(current_function_parts[:3])
+        elif current_function_parts[0] == "func":
+            current_function_stem = "_".join(current_function_parts[:2])
+        else:
+            current_function_stem = current_function
+
+        in_known_segment = bool(segment_meta and (segment_meta.end or (segment_meta.allow and current_function_stem in segment_meta.allow)))
+
         if (
-            current_function in known_starts
+            current_function_parts[0] == "GetLang" and matches[i + 1][1] in known_starts
+        ) or (
+            current_function_stem in known_starts
+            and not in_known_segment
             and (
                 not segment_meta
                 or not segment_meta.name
-                or not segment_meta.name.endswith(known_starts[current_function].name)
+                or not segment_meta.name.endswith(known_starts[current_function_stem].name)
             )
-        ) or (
-            (current_function == "GetLang" or current_function.startswith("GetLang_"))
-            and matches[i + 1][1] in known_starts
         ):
             if segment_meta:
                 if not segment_meta.name and len(functions) == 1:
@@ -375,11 +383,17 @@ def find_segments(ovl_config, file_header):
                 functions.clear()
                 segment_meta = None
 
-            if current_function == "GetLang" or current_function.startswith("GetLang_"):
+            if current_function_parts[0] == "GetLang":
                 segment_meta = known_starts[matches[i + 1][1]]
                 segment_meta.start = current_function
+            elif current_function_stem not in known_starts:
+                for num in range(len(current_function_parts), 0, -1):
+                    if "_".join(current_function_parts[:num]) in known_starts:
+                        segment_meta = known_starts["_".join(current_function_parts[:num])]
+                        segment_meta.start = current_function
             else:
-                segment_meta = known_starts[current_function]
+                segment_meta = known_starts[current_function_stem]
+                segment_meta.start = current_function
             segment_meta.offset = None
             if ovl_config.version == "pspeu":
                 segment_meta.name = f"{ovl_config.segment_prefix}{segment_meta.name}"
@@ -418,14 +432,14 @@ def find_segments(ovl_config, file_header):
                 f"{ovl_config.segment_prefix}unk_{segment_meta.offset.str}"
             )
 
-        if segment_meta and current_function == segment_meta.end:
+        if segment_meta and current_function_stem == segment_meta.end:
             logger.debug(
                 f"Found text segment for {segment_meta.name} at 0x{segment_meta.offset.str}"
             )
             segments.append(segment_meta)
             functions.clear()
             segment_meta = None
-        elif segment_meta and segment_meta.allow and current_function not in segment_meta.allow:
+        elif segment_meta and segment_meta.allow and current_function_stem not in segment_meta.allow:
             logger.debug(
                 f"Found text segment for {segment_meta.name} at 0x{segment_meta.offset.str}"
             )
@@ -623,8 +637,8 @@ def find_symbols(parsed_check_files, parsed_ref_files, version, ovl_name, thresh
         check_paths = tuple(x.path for x in check_funcs_by_op_hash[check_op_hash])
         if ref_paths and check_paths:
             ref_names = tuple(
-                sorted((RE_PATTERNS.symbol_ovl_name_prefix.sub(f"{ovl_name.upper()}_", func.stem.replace(f"func_{version}_", f"func_{func.parts[3]}_")) for func in ref_paths),
-                       key=lambda x: (0, x) if re.match(r'^[A-Z0-9]{3,4}', x) else (1, x) if not x.startswith('func_') else (2, x) if not re.match(r'func_[A-Za-z0-9]{3,4}_', x) else (3, x))
+                sorted((RE_PATTERNS.symbol_ovl_name_prefix.sub(f"{ovl_name.upper()}_", f"{func.stem}_from_{func.parts[3]}" if func.stem.startswith(f"func_{version}") else func.stem) for func in ref_paths),
+                       key=lambda x: (0, x) if re.match(r"^[A-Z0-9]{3,4}", x) else (1, x) if not x.startswith("func_") else (2, x) if not re.match(r"func_[A-Za-z0-9]{3,4}_", x) else (3, x))
             )
             ref_names = tuple(x.split("_")[0] if not x.startswith("func") and re.match(r"[A-Za-z0-9]+_[0-9A-F]{8}", x) else x for x in ref_names)
             check_names = tuple(func.stem for func in check_paths)
@@ -712,17 +726,18 @@ def rename_symbols(ovl_config, matches):
             new_name = match.ref.counts.all[0][0]
             if "unused" in new_name.lower():
                 for name in match.check.names:
-                    name = name.replace(f"func_{ovl_config.version}_", f"{ovl_config.name.upper()}_Unused_")
+                    address = int(name.split("_")[-1], 16)
+                    name = name.replace(f"func_{ovl_config.version}_", f"{ovl_config.name.upper()}_Unused")
                     symbols[name].append(
-                        Symbol(name, int(name.split("_")[-1], 16))
+                        Symbol(name, address)
                     )
             elif len(match.check.names) == 1 and match.check.names[0].startswith(
                 f"func_{ovl_config.version}_"
             ):
-                offset = int(match.check.names[0].split("_")[-1], 16)
                 if match.ref.names.all:
+                    address = int(match.check.names[0].split("_")[-1], 16)
                     symbols[new_name].append(
-                        Symbol(f"{ovl_config.name.upper()}_unused_" if "unused" in new_name.lower() else new_name, offset)
+                        Symbol(f"{ovl_config.name.upper()}_Unused_" if "unused" in new_name.lower() else new_name, address)
                     )
                 if (
                     len(match.ref.counts.all) > 1
@@ -735,9 +750,10 @@ def rename_symbols(ovl_config, matches):
                 continue
             elif len(match.check.names) > 1 and len(match.ref.counts.all) == 1:
                 for name in match.check.names:
+                    address = int(name.split("_")[-1], 16)
                     name = name.replace(f"func_{ovl_config.version}_", f"{new_name}_")
                     symbols[name].append(
-                        Symbol(name, int(name.split("_")[-1], 16))
+                        Symbol(name, address)
                     )
             elif match.ref.names.no_defaults != match.check.names:
                 logger.info(f"Unhandled naming condition: Target name {match.ref.counts.no_defaults} for {ovl_config.name} function(s) {match.check.names} with score {match.score}")
