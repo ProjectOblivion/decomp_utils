@@ -326,15 +326,17 @@ def get_known_starts(
             else:
                 end = ""
 
+            functions = {v.replace("${prefix}", ovl_name.upper()) for v in values.get("functions", [])}
             known_segments.extend(
                 SimpleNamespace(
                     name=values.get("name", label).replace("${prefix}", ovl_name.upper()),
                     start=start.replace("${prefix}", ovl_name.upper()),
                     end=end.replace("${prefix}", ovl_name.upper()),
-                    allow=tuple(v.replace("${prefix}", ovl_name.upper()) for v in values.get("functions", [])) or None
+                    allow=set(starts) | functions
                 )
                 for start in starts
             )
+    # TODO: Check if this is an issue for multiple segments with the same start
     return {x.start: x for x in known_segments}
 
 def find_segments(ovl_config, file_header):
@@ -375,6 +377,8 @@ def find_segments(ovl_config, file_header):
             if segment_meta:
                 if not segment_meta.name and len(functions) == 1:
                     segment_meta.name = f"{ovl_config.segment_prefix}{RE_PATTERNS.camel_case.sub(r'\1_\2', functions[0]).lower().replace('entity', 'e')}"
+                if not functions:
+                    logger.error(f"Found start function {current_function} that isn't allowed for {segment_meta.name}, this is likely an error in segments.yaml")
                 segment_meta.end = functions[-1]
                 logger.debug(
                     f"Found text segment for {segment_meta.name} at 0x{segment_meta.offset.str}"
@@ -443,6 +447,8 @@ def find_segments(ovl_config, file_header):
             logger.debug(
                 f"Found text segment for {segment_meta.name} at 0x{segment_meta.offset.str}"
             )
+            if not functions:
+                logger.error(f"Found start function {current_function} that isn't allowed for {segment_meta.name}, this is likely an error in segments.yaml")
             segment_meta.end = functions[-1]
             segments.append(segment_meta)
             functions.clear()
@@ -637,8 +643,8 @@ def find_symbols(parsed_check_files, parsed_ref_files, version, ovl_name, thresh
         check_paths = tuple(x.path for x in check_funcs_by_op_hash[check_op_hash])
         if ref_paths and check_paths:
             ref_names = tuple(
-                sorted((RE_PATTERNS.symbol_ovl_name_prefix.sub(f"{ovl_name.upper()}_", f"{func.stem}_from_{func.parts[3]}" if func.stem.startswith(f"func_{version}") else func.stem) for func in ref_paths),
-                       key=lambda x: (0, x) if re.match(r"^[A-Z0-9]{3,4}", x) else (1, x) if not x.startswith("func_") else (2, x) if not re.match(r"func_[A-Za-z0-9]{3,4}_", x) else (3, x))
+                sorted((RE_PATTERNS.symbol_ovl_name_prefix.sub(f"{ovl_name.upper()}_", f"{func.stem}_from_{func.parts[3].replace('_psp', '')}" if func.stem.startswith(f"func_{version}") and "_from_" not in func.stem else func.stem) for func in ref_paths),
+                       key=lambda x: (0, x) if re.match(r"^[A-Z0-9]{3,4}", x) else (1, x) if not x.startswith("func_") else (2, x) if re.match(r"func_[0-9A-F]{8}", x) else (3, x) if x.startswith("func_us_") else (4,x))
             )
             ref_names = tuple(x.split("_")[0] if not x.startswith("func") and re.match(r"[A-Za-z0-9]+_[0-9A-F]{8}", x) else x for x in ref_names)
             check_names = tuple(func.stem for func in check_paths)
@@ -744,8 +750,8 @@ def rename_symbols(ovl_config, matches):
                     and match.ref.counts.all[0][1]
                     == match.ref.counts.all[1][1]
                 ):
-                    logger.info(f"Ambiguous match: {match.check.names[0]} renamed to {new_name} with a score of {match.score}, all matches were {', '.join([x[0] for x in match.ref.counts.no_defaults])}")
-                    ambiguous.append(SimpleNamespace(old_names=[match.check.names[0]], new_names=[new_name], score=match.score, all_matches=[x[0] for x in match.ref.counts.no_defaults]))
+                    logger.info(f"Ambiguous match: {match.check.names[0]} renamed to {new_name} with a score of {match.score}, all matches were {', '.join([x[0] for x in match.ref.counts.all])}")
+                    ambiguous.append(SimpleNamespace(old_names=[match.check.names[0]], new_names=[new_name], score=match.score, all_matches=[x[0] for x in match.ref.counts.all]))
             elif len(match.check.names) == 1 and match.check.names[0] == new_name:
                 continue
             elif len(match.check.names) > 1 and len(match.ref.counts.all) == 1:
@@ -757,7 +763,7 @@ def rename_symbols(ovl_config, matches):
                     )
             elif match.ref.names.no_defaults != match.check.names:
                 logger.info(f"Unhandled naming condition: Target name {match.ref.counts.no_defaults} for {ovl_config.name} function(s) {match.check.names} with score {match.score}")
-                unhandled.append(SimpleNamespace(old_names=match.check.names, new_names=[f"{x[0]} ({x[1]})" for x in match.ref.counts.no_defaults], score=match.score, all_matches=[x[0] for x in match.ref.counts.no_defaults]))
+                unhandled.append(SimpleNamespace(old_names=match.check.names, new_names=[f"{x[0]} ({x[1]})" for x in match.ref.counts.all], score=match.score, all_matches=[x[0] for x in match.ref.counts.all]))
 
     if symbols:
         # Todo: Figure out a better way to handle multiple functions mapping to multiple functions with the same name

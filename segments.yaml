@@ -1,3 +1,21 @@
+# The functions key is the only required key
+# If no start functions are specified, the first item in functions will be used
+# Start functions can be included in functions, but aren't required to be
+# If an end function is specified, the segment will include the start, the end, and everything in between
+# GetLang for pspeu is a special case where it starts the segment, but should not be listed as a start
+# because it has the possibility of starting multiple different segments.
+# It should only be included as a function in the segment and will be used as a start if it is found.
+#example_segment_name:
+#  start:
+#    - Optional
+#    - Segment
+#    - Start
+#    - Functions
+#  functions:
+#    - All
+#    - Segment
+#    - Functions
+#  end: OptionalEndFunction
 e_armor_lord_guardian:
   functions:
   - func_us_801D1184
@@ -465,7 +483,10 @@ e_misc:
   - PlaySfxPositional
   - func_us_801C55AC
 e_mist_door:
+  start:
+  - EntityMistDoor
   functions:
+  - GetLang
   - EntityMistDoor
 e_nova_skeleton:
   functions:
@@ -565,8 +586,10 @@ e_salem_witch:
   - EntitySalemWitchTriboltProjectile
   ovl: rnz0
 e_sealed_door:
-  functions:
+  start:
   - SealedDoorIsNearPlayer
+  functions:
+  - GetLang
   - EntitySealedDoor
 e_shutting_window:
   functions:
