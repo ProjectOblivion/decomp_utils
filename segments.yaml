@@ -288,9 +288,11 @@ e_elevator:
   start:
   - func_us_801C1F98 # no0
   - func_us_8019FD4C # rcen
+  - func_us_801B6654 # rno0
   functions:
   - func_us_801C1F98
   - func_us_8019FD4C
+  - func_us_801B6654
   - func_us_801C2044
   - func_us_801C2184
   - EntityUnkId1B
@@ -334,6 +336,17 @@ e_gaibon:
   - func_801B69E8
   - EntitySmallGaibonProjectile
   - EntityLargeGaibonProjectile
+e_gorgon:
+  functions:
+  - func_801CD78C # rno0 func_801CD78C_801CEB40
+  - func_us_801D2424 # are
+  - func_us_801CEEB4 # rno0
+  - func_us_801CF08C # rno0
+  - func_us_801CF24C # rno0
+  - func_us_801CF380 # rno0
+  - StepTowards
+  - func_us_801CF64C # rno0
+  - func_us_801CF7D0 # rno0
 e_grave_keeper:
   functions:
   - SpawnDustParticles
@@ -685,6 +698,9 @@ e_stairway:
   functions:
   - EntityStairwayPiece
   - EntityFallingRock
+e_stone_skull:
+  functions:
+  - func_us_801C7F24 # rno0
 e_subweapon_container:
   functions:
   - EntitySubWeaponContainer
