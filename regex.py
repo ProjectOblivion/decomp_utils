@@ -1,9 +1,7 @@
 import re
 from collections import namedtuple
-from string import Template
 
 __all__ = [
-    "RE_TEMPLATES",
     "RE_PATTERNS",
 ]
 
@@ -21,17 +19,6 @@ RE_STRINGS = namedtuple("ReStrings", ["psp_entity_table", "psp_ovl_header"])(
         (?:.*\n){2}
         \s+/\*\s[A-F0-9]{1,5}\s[A-F0-9]{8}\sE127240E\s\*/.*\n
     """,
-)
-RE_TEMPLATES = namedtuple(
-    "ReTemplates",
-    ["rodata_offset", "asm_symbol_offset"],
-)(
-    rodata_offset=Template(
-        r"glabel (?:jtbl|D)_${version}_[0-9A-F]{8}\n\s+/\*\s(?P<offset>[0-9A-F]{1,5})\s"
-    ),
-    asm_symbol_offset=Template(
-        r"glabel ${symbol_name}\s+/\*\s(?P<offset>[0-9A-F]{1,5})\s"
-    ),
 )
 RE_PATTERNS = namedtuple(
     "RePatterns",
