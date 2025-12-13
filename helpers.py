@@ -19,7 +19,7 @@ from enum import StrEnum
 from typing import Any, Union, Generator
 from io import StringIO
 from collections import namedtuple
-from string import Template
+
 
 __all__ = [
     "TTY",
@@ -32,21 +32,33 @@ __all__ = [
     "create_table",
     "bar",
     "splat_split",
-    "build",
+    "add_symbols",
+    "get_symbol_address",
+    "Symbol",
+    "get_suggested_segments",
+    "get_run_time",
 ]
 
+Symbol = namedtuple("Symbol", ["name", "address"])
+
 class TTY(StrEnum):
-    DARK_GREY = "\x1b[90m"
-    GREY = "\x1b[38m"
+    RESET = "\x1b[0m"
+    BOLD = "\x1b[1m"
+    RED = "\x1b[31m"
     GREEN = "\x1b[32m"
     YELLOW = "\x1b[33m"
-    RED = "\x1b[31m"
-    BOLD = "\x1b[1m"
+    BLUE = "\x1b[34m"
+    GREY = "\x1b[38m"
+    DARK_GREY = "\x1b[90m"
     HIDE_CURSOR = "\x1b[?25l"
     SHOW_CURSOR = "\x1b[?25h"
     CLEAR = "\x1b[K"
-    RESET = "\x1b[0m"
-
+    INFO = "\x1b[34m\x1b[1mℹ\x1b[0m"
+    INFO_CIRCLE = "\x1b[34m\x1b[1m🛈\x1b[0m"
+    WARNING = "\x1b[33m⚠\x1b[0m"
+    OK = "🆗"
+    SUCCESS = f"\x1b[32m\x1b[1m✔\x1b[0m"
+    FAILURE = f"\x1b[31m\x1b[1m✖"
 
 class SotnDecompConsoleFormatter(logging.Formatter):
     """Formats log entries with color-coded severities"""
@@ -203,7 +215,7 @@ def get_repo_root(current_path: Path = Path(__file__).resolve()) -> Path:
     raise FileNotFoundError("Repository root with .git folder not found.")
 
 
-def shell(cmd, env_vars = {}, version=None):
+def shell(cmd, env_vars = {}, version=None, text=True):
     """Executes a string as a shell command and returns its output"""
     # Todo: Add both list and string handling
     env = os.environ.copy()
@@ -211,7 +223,7 @@ def shell(cmd, env_vars = {}, version=None):
     if version:
         env["VERSION"] = version
     env.update(env_vars)
-    cmd_output = run(cmd.split(), env=env, capture_output=True)
+    cmd_output = run(cmd.split(), env=env, capture_output=True, text=text)
     if cmd_output.returncode != 0:
         logger = get_logger()
         logger.warning(cmd_output.stdout)
@@ -355,15 +367,6 @@ def bar(score, width=7):
     return bar
 
 
-def build(targets=[], plan=True, dynamic_syms=False, build=True, version="us"):
-    env_vars = {"FORCE_SYMBOLS": ""} if dynamic_syms else {}
-    if plan:
-        Path(f"build/{version}/").mkdir(parents=True, exist_ok=True)
-        shell(f"python3 tools/builds/gen.py build/{version}/build.ninja", env_vars=env_vars, version=version)
-    if build:
-        return shell(f"ninja -f build/{version}/build.ninja {' '.join(f"{x}" for x in targets)}", version=version)
-
-
 def splat_split(config_path, disassemble_all=True):
     output = StringIO()
     with contextlib.redirect_stdout(output):
@@ -377,17 +380,99 @@ def splat_split(config_path, disassemble_all=True):
         )
     return output.getvalue()
 
-def mipsmatch(version, ref_ovls, bin_path):
-    segments = []
-    for ref_ovl in ref_ovls:
-        shell(
-            f"cargo run --release --manifest-path tools/mipsmatch/Cargo.toml -- --output build/{version}/fingerprint.{ref_ovl}.yaml fingerprint build/{version}/{ref_ovl}.map build/{version}/{ref_ovl}.elf"
+def get_suggested_segments(config_path):
+    output = splat_split(config_path)
+    splat_suggestions = re.finditer(
+        r"""
+        The\srodata\ssegment\s'(?P<segment>\w+)'\shas\sjumptables.+\n
+        File\ssplit\ssuggestions.+\n
+        (?P<suggestions>(?:\s+-\s+\[0x[0-9A-Fa-f]+,\s.+?\]\n)+)\n
+        """,
+        output,
+        re.VERBOSE
         )
-        match_stream = shell(
-            f"cargo run --release --manifest-path tools/mipsmatch/Cargo.toml -- scan build/{version}/fingerprint.{ref_ovl}.yaml {bin_path}"
+
+    suggested_segments = []
+    for match in splat_suggestions:
+        suggestions = re.findall(
+            r"\s+-\s+\[(0x[0-9A-Fa-f]+),\s(.+?)\]",
+            match.group("suggestions")
         )
-        matches = yaml.load_all(match_stream, Loader=yaml.SafeLoader)
-        for match in matches:
-            if match not in segments:
-                segments.append(match)
-    return segments
+        suggested_segments.extend(
+            [offset, segment_type, match.group("segment")]
+            for offset, segment_type in suggestions
+        )
+
+    return suggested_segments
+
+def get_symbol_address(map_path, symbol_name):
+    if map_path and map_path.is_file():
+        if match := re.search(r"\n\s+0x(?P<address>[A-Fa-f0-9]{8})\s+" + rf"{symbol_name}\n", map_path.read_text()):
+            return int(match.group(1), 16)
+        else:
+            return None
+    else:
+        get_logger().error(f"{map_path} not found")
+        return None
+
+existing_symbols_pattern=re.compile(r"(?P<name>\w+)\s=\s0x(?P<address>[A-Fa-f0-9]{8})")
+def add_symbols(symbols_path, new_symbols, ovl_name, vram, sym_prefix, src_path_full, symexport_path):
+    symbols_text = Path(symbols_path).read_text()
+    existing_symbols = {
+        symbol.group("address"): symbol.group("name")
+        for symbol in existing_symbols_pattern.finditer(symbols_text)
+    }
+    # Any addresses not in the ovl vram address space are global and should not be included in the ovl symbols file
+    new_symbols = {
+        f"{symbol.address:08X}": symbol.name
+        for symbol in new_symbols
+        if symbol.address >= vram
+        and symbol.name not in symbols_text
+        and (
+            f"{symbol.address:08X}" not in existing_symbols
+            or (
+                existing_symbols[f"{symbol.address:08X}"].startswith("D_")
+                and existing_symbols[f"{symbol.address:08X}"].startswith("func_")
+            )
+        )
+    }
+
+    if new_symbols:
+        new_lines = [
+            f"{name} = 0x{address};"
+            for address, name in sorted((existing_symbols | new_symbols).items())
+        ]
+        symbols_path.write_text(f"{"\n".join(new_lines)}\n")
+
+        pattern = re.compile(rf"(?:D_|func_){sym_prefix}({"|".join(new_symbols.keys())})")
+        for src_file in (
+            dirpath / f
+            for dirpath, _, filenames in src_path_full.walk()
+            for f in filenames
+            if f.endswith(".c") or f == f"{ovl_name}.h"
+        ):
+            src_text = src_file.read_text()
+            adjusted_text = pattern.sub(
+                lambda match: new_symbols[match.group(1)], src_text
+            )
+            if adjusted_text != src_text:
+                src_file.write_text(adjusted_text)
+        if symexport_path and symexport_path.exists():
+            adjusted_text = pattern.sub(
+                lambda match: new_symbols[match.group(1)],
+                symexport_path.read_text(),
+            )
+            symexport_path.write_text(adjusted_text)
+
+def get_run_time(start_time):
+    run_time = time.perf_counter() - start_time
+    if run_time < 60:
+        time_text = f"{round(run_time % 60, 0)} seconds"
+    else:
+        minutes = int(run_time // 60)
+        seconds = round(run_time % 60, 0)
+        minutes_text = f"{minutes}m"
+        seconds_text = f"{int(seconds)}s" if seconds else ""
+        time_text = f"{minutes_text}{seconds_text}"
+    
+    return time_text
