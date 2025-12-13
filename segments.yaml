@@ -232,10 +232,10 @@ e_cutscene_actors:
   - func_us_801A9944
 e_cutscene_dialogue:
   start:
-  - GetLang
   - DrawCutsceneActorName
   - CutsceneUnk1
   functions:
+  - GetLang
   - CutsceneUnk1
   - SetCutsceneScript
   - CutsceneUnk3

@@ -294,7 +294,16 @@ def clean_artifacts(ovl_config, full_clean = False, spinner=SimpleNamespace(mess
         spinner.message=f"Removing {ovl_config.config_path}"
         ovl_config.config_path.unlink(missing_ok=True)
 
-    spinner.message=f"cleaned artifacts"
+    spinner.message=f"cleaned {ovl_config.version} overlay {ovl_config.name.upper()} artifacts and configuration"
+
+def remove_overlay(overlay, versions):
+    logger = sotn_utils.get_logger()
+    with sotn_utils.Spinner(message=f"starting overlay removal") as spinner:
+        for version in versions:
+            logger.info(f"Removing {version} overlay {overlay.upper()} artifacts and configuration")
+            spinner.message = f"removing {version} overlay {overlay.upper()} artifacts and configuration"
+            ovl_config = sotn_utils.SotnOverlayConfig(overlay, version)
+            clean_artifacts(ovl_config, True, spinner)
 
 def extract(args, version):
     logger = sotn_utils.get_logger()
@@ -497,6 +506,12 @@ if __name__ == "__main__":
         help="DESTRUCTIVE: Remove any existing overlay artifacts before re-extracting the overlay from the source binary",
     )
     parser.add_argument(
+        "--remove",
+        required=False,
+        action="store_true",
+        help="DESTRUCTIVE: Remove any existing overlay artifacts without re-extracting the overlay",
+    )
+    parser.add_argument(
         "-e",
         "--make-expected",
         required=False,
@@ -534,16 +549,19 @@ if __name__ == "__main__":
     if "all" in args.version:
         args.version = ["us", "pspeu", "hd"]
 
-    # always build us first
-    if "us" in args.version:
-        # rchi has data values that get interpreted as global symbols, so those symbols need to be defined for the linker
-        if args.overlay == "rchi":
-            add_undefined_symbol("us", "PadRead", 0x80015288)
-        extract(args, "us")
-    if "pspeu" in args.version:
-        #  bo4 and rbo5 have data values that get interpreted as global symbols, so those symbols need to be defined for the linker
-        if args.overlay == "bo4" or args.overlay == "rbo5":
-            add_undefined_symbol("pspeu", "g_Clut", 0x091F5DF8)
-        extract(args, "pspeu")
-    if "hd" in args.version:
-        extract(args, "hd")
+    if args.remove:
+        remove_overlay(args.overlay, args.version)
+    else:
+        # always build us first
+        if "us" in args.version:
+            # rchi has data values that get interpreted as global symbols, so those symbols need to be defined for the linker
+            if args.overlay == "rchi":
+                add_undefined_symbol("us", "PadRead", 0x80015288)
+            extract(args, "us")
+        if "pspeu" in args.version:
+            #  bo4 and rbo5 have data values that get interpreted as global symbols, so those symbols need to be defined for the linker
+            if args.overlay == "bo4" or args.overlay == "rbo5":
+                add_undefined_symbol("pspeu", "g_Clut", 0x091F5DF8)
+            extract(args, "pspeu")
+        if "hd" in args.version:
+            extract(args, "hd")

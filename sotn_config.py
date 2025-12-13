@@ -358,6 +358,8 @@ def find_segments(ovl_config, file_header):
             current_function_stem = "_".join(current_function_parts[:3])
         elif current_function_parts[0] == "func":
             current_function_stem = "_".join(current_function_parts[:2])
+        elif current_function_parts[0] == "GetLang":
+            current_function_stem = current_function_parts[0]
         else:
             current_function_stem = current_function
 
@@ -366,7 +368,8 @@ def find_segments(ovl_config, file_header):
         if (
             current_function_parts[0] == "GetLang" and matches[i + 1][1] in known_starts
         ) or (
-            current_function_stem in known_starts
+            current_function_parts[0] != "GetLang"
+            and current_function_stem in known_starts
             and not in_known_segment
             and (
                 not segment_meta
@@ -685,10 +688,9 @@ def find_symbols(parsed_check_files, parsed_ref_files, version, ovl_name, thresh
 
 def rename_symbols(ovl_config, matches):
     # TODO: move to yaml file
-    known_pairs = (
+    known_pairs = [
         SimpleNamespace(first="func_801CC5A4", last="func_801CF438"),
         SimpleNamespace(first="func_801CC90C", last="func_801CF6D8"),
-        SimpleNamespace(first="EntityIsNearPlayer", last="SealedDoorIsNearPlayer"),
         SimpleNamespace(
             first="GetAnglePointToEntityShifted", last="GetAnglePointToEntity"
         ),
@@ -700,19 +702,25 @@ def rename_symbols(ovl_config, matches):
         SimpleNamespace(first="FindFirstEntityToTheLeft", last="FindFirstEntityBelow"),
         SimpleNamespace(first="CreateEntitiesToTheRight", last="CreateEntitiesAbove"),
         SimpleNamespace(first="CreateEntitiesToTheLeft", last="CreateEntitiesBelow"),
-    )
+    ]
+    # e_red_door typically comes before e_sealed door, but us rno2 and bo0 have e_sealed_door first
+    if ovl_config.version == "us" and ovl_config.name in ["rno2", "bo0"]:
+        known_pairs.append(SimpleNamespace(first="SealedDoorIsNearPlayer", last="EntityIsNearPlayer"))
+    else:
+        known_pairs.append(SimpleNamespace(first="EntityIsNearPlayer", last="SealedDoorIsNearPlayer"))
+
     symbols = defaultdict(list)
     unhandled, ambiguous = [], []
     # TODO: Review this logic to remove no_defaults
     for match in matches:
         for pair in known_pairs:
             if (
-                len(match.ref.names.no_defaults) <= 2
+                len(match.ref.names.all) <= 2
                 and len(match.check.names) <= 2
-                and pair.first in match.ref.names.no_defaults
+                and pair.first in match.ref.names.all
                 and (
-                    pair.last in match.ref.names.no_defaults
-                    or len(match.ref.names.no_defaults) == 1
+                    pair.last in match.ref.names.all
+                    or len(match.ref.names.all) == 1
                 )
             ):
                 offset = min(
@@ -721,7 +729,7 @@ def rename_symbols(ovl_config, matches):
                 symbols[pair.first].append(Symbol(pair.first, offset))
                 if (
                     len(match.check.names) == 2
-                    and pair.last in match.ref.names.no_defaults
+                    and pair.last in match.ref.names.all
                 ):
                     offset = max(
                         tuple(int(x.split("_")[-1], 16) for x in match.check.names)
@@ -761,8 +769,8 @@ def rename_symbols(ovl_config, matches):
                     symbols[name].append(
                         Symbol(name, address)
                     )
-            elif match.ref.names.no_defaults != match.check.names:
-                logger.info(f"Unhandled naming condition: Target name {match.ref.counts.no_defaults} for {ovl_config.name} function(s) {match.check.names} with score {match.score}")
+            elif match.ref.names.all != match.check.names:
+                logger.info(f"Unhandled naming condition: Target name {match.ref.counts.all} for {ovl_config.name} function(s) {match.check.names} with score {match.score}")
                 unhandled.append(SimpleNamespace(old_names=match.check.names, new_names=[f"{x[0]} ({x[1]})" for x in match.ref.counts.all], score=match.score, all_matches=[x[0] for x in match.ref.counts.all]))
 
     if symbols:
