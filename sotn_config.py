@@ -1,30 +1,22 @@
 #!/usr/bin/env python3
 
 import re
-import shutil
-import time
-import hashlib
-from sotn_utils.regex import RE_TEMPLATES, RE_PATTERNS
 from concurrent.futures import ProcessPoolExecutor
 from collections import Counter, deque, defaultdict
 from pathlib import Path
 from types import SimpleNamespace
 from mako.template import Template
 from enum import Enum
-from sotn_utils.helpers import get_logger, Spinner, splat_split, shell, add_symbols, Symbol, get_symbol_address
-from sotn_utils.sotn_overlay import SotnOverlayConfig
-from sotn_utils.asm_compare import group_by_hash, get_buckets, find_matches, group_results, parse_asm_files, cross_reference_asm
+from sotn_utils.regex import RE_PATTERNS
+from sotn_utils.helpers import get_logger, splat_split, shell, add_symbols, Symbol, get_symbol_address
+from sotn_utils.asm_compare import group_by_hash, get_buckets, find_matches, group_results
 import sotn_utils.yaml_ext as yaml
 
 """
 Code for handling the creation of Castlevania SOTN Splat configs
 """
-# Todo: Allow matches to default functions, but only if there isn't a named match
 # Todo: Review accuracy of naming for offset and address variables
-# Todo: Handle merging psp ovl.h file with existing psx ovl.h file
 # Todo: Add symbols closer to where the address is gathered
-# Todo: Add einit common symbols
-# Todo: Add EInits to e_init.c
 # Todo: Extract and import BackgroundBlockInit data
 # Todo: Extract and import RedDoorTiles data
 # Todo: Add g_eRedDoorUV data to e_red_door
@@ -343,7 +335,7 @@ def find_segments(ovl_config, file_header):
     # Todo: Add dynamic segment detection
     segments = []
     rodata_pattern = re.compile(
-        RE_TEMPLATES.rodata_offset.substitute(version=ovl_config.version)
+        rf"glabel (?:jtbl|D)_{ovl_config.version}" + r"_[0-9A-F]{8}\n\s+/\*\s(?P<offset>[0-9A-F]{1,5})\s"
     )
     known_starts = get_known_starts(ovl_config.name, ovl_config.version)
     src_text = ovl_config.first_src_file.read_text()
@@ -427,9 +419,7 @@ def find_segments(ovl_config, file_header):
                 )
                 asm_text = asm_path.read_text()
                 if first_offset := re.search(
-                    RE_TEMPLATES.asm_symbol_offset.substitute(
-                        symbol_name=current_function
-                    ),
+                    rf"glabel {current_function}" + r"\s+/\*\s(?P<offset>[0-9A-F]{1,5})\s",
                     asm_text,
                 ):
                     segment_meta.offset = SimpleNamespace(str=first_offset.group(1))
@@ -474,9 +464,7 @@ def find_segments(ovl_config, file_header):
                 )
                 asm_text = asm_path.read_text()
                 if first_offset := re.search(
-                    RE_TEMPLATES.asm_symbol_offset.substitute(
-                        symbol_name=current_function
-                    ),
+                    rf"glabel {current_function}" + r"\s+/\*\s(?P<offset>[0-9A-F]{1,5})\s",
                     asm_text,
                 ):
                     segment_meta.offset = SimpleNamespace(str=first_offset.group(1))
