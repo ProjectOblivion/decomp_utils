@@ -5,7 +5,6 @@ from concurrent.futures import ProcessPoolExecutor
 from collections import Counter, deque, defaultdict
 from pathlib import Path
 from types import SimpleNamespace
-from mako.template import Template
 from enum import Enum
 from sotn_utils.regex import RE_PATTERNS
 from sotn_utils.helpers import get_logger, splat_split, shell, add_symbols, Symbol, get_symbol_address
@@ -37,20 +36,15 @@ Code for handling the creation of Castlevania SOTN Splat configs
 # TODO: Identity symbol conflicts during extraction
 
 __all__ = [
-    "get_known_starts",
     "find_segments",
     "find_symbols",
     "rename_symbols",
-    "parse_psp_ovl_load",
     "parse_ovl_header",
-    "create_header_c",
     "parse_init_room_entities",
     "parse_entity_updates",
     "parse_e_inits",
-    "create_e_init_c",
     "sort_subsegments",
     "cross_reference_e_init_c",
-    "create_ovl_include",
     "find_psx_entity_updates",
     "add_initial_symbols",
     "rename_similar_functions",
@@ -230,41 +224,6 @@ class EnemyDefs(Enum):
     BlueVenusWeed2 = 0x189
     Guardian = 0x18C
 
-def create_ovl_include(entity_updates, ovl_name, ovl_type, ovl_include_path):
-    entity_funcs = []
-    if entity_updates:
-        for i, func in enumerate([symbol.name for symbol in entity_updates]):
-            if func == "EntityDummy":
-                entity_funcs.append((func, f"E_DUMMY_{i+1:X}"))
-            elif func.startswith("Entity") or func.startswith("OVL_EXPORT(Entity"):
-                entity_funcs.append(
-                    (
-                        func,
-                        RE_PATTERNS.camel_case.sub(
-                            r"\1_\2", func.replace("OVL_EXPORT(", "").replace(")", "")
-                        )
-                        .upper()
-                        .replace("ENTITY", "E"),
-                    )
-                )
-            elif func == "0x00000000":
-                entity_funcs.append((func, f"NULL"))
-            else:
-                entity_funcs.append((func, f"E_UNK_{i+1:X}"))
-
-    template = Template((Path(__file__).parent / "templates" / "ovl.h.mako").read_text())
-    ovl_header_text = template.render(
-        ovl_name=ovl_name,
-        ovl_type=ovl_type,
-        entity_updates=entity_funcs,
-    )
-
-    if not ovl_include_path.exists():
-        ovl_include_path.parent.mkdir(parents=True, exist_ok=True)
-        ovl_include_path.write_text(ovl_header_text)
-    elif entity_funcs and "Entities" not in ovl_include_path.read_text():
-        ovl_include_path.write_text(ovl_header_text)
-
 
 def find_psx_entity_updates(first_data_text, pStObjLayoutHorizontal_address = None):
     # TODO: Find a less complicated way to handle this
@@ -291,53 +250,12 @@ def find_psx_entity_updates(first_data_text, pStObjLayoutHorizontal_address = No
     # get the second word of the first line, which should be the entity table symbol name
     return {"name": first_data_text[entity_updates_index:first_entity_index].splitlines()[0].split()[1]}
 
-# TODO: Use mipsmatch to supplement segments.yaml
-# TODO: mipsmatch scan some.yaml another.yaml evenmore.yaml import.bin for the bin you're importing
-def get_known_starts(
-    ovl_name, version, segments_path=Path(__file__).parent / "segments.yaml"
-):
-    segments_config = yaml.safe_load(segments_path.read_text())
-    known_segments = []
-    # Todo: Simplify this logic
-    for label, values in segments_config.items():
-        if not values or "functions" not in values:
-            continue
 
-        if "ovl" not in values or ovl_name in values["ovl"]:
-            if "start" not in values:
-                starts = [values["functions"][0]]
-            elif isinstance(values["start"], str):
-                starts = [values["start"]]
-            elif isinstance(values["start"], list):
-                starts = values["start"]
-            else:
-                continue
-
-            if "end" in values and isinstance(values["end"], str):
-                end = values["end"]
-            else:
-                end = ""
-
-            functions = {v.replace("${prefix}", ovl_name.upper()) for v in values.get("functions", [])}
-            known_segments.extend(
-                SimpleNamespace(
-                    name=values.get("name", label).replace("${prefix}", ovl_name.upper()),
-                    start=start.replace("${prefix}", ovl_name.upper()),
-                    end=end.replace("${prefix}", ovl_name.upper()),
-                    allow=set(starts) | functions
-                )
-                for start in starts
-            )
-    # TODO: Check if this is an issue for multiple segments with the same start
-    return {x.start: x for x in known_segments}
-
-def find_segments(ovl_config, file_header):
-    # Todo: Add dynamic segment detection
+def find_segments(ovl_config, file_header, known_starts):
     segments = []
     rodata_pattern = re.compile(
         rf"glabel (?:jtbl|D)_{ovl_config.version}" + r"_[0-9A-F]{8}\n\s+/\*\s(?P<offset>[0-9A-F]{1,5})\s"
     )
-    known_starts = get_known_starts(ovl_config.name, ovl_config.version)
     src_text = ovl_config.first_src_file.read_text()
 
     segment_meta = None
@@ -779,44 +697,6 @@ def rename_symbols(ovl_config, matches):
         logger.warning("\nNo new symbols found\n")
         return 0
 
-# Validate logic and move to sotn-decomp
-def parse_psp_ovl_load(ovl_name, path_prefix, asm_path):
-    first_address_pattern = re.compile(r"\s+/\*\s+[A-F0-9]{1,5}\s+([A-F0-9]{8})\s")
-    ovl_load_name, ovl_load_symbol, ovl_header_name, entity_updates_name = None, None, None, None
-    for file in (
-        dirpath / f
-        for dirpath, _, filenames in asm_path.walk()
-        for f in filenames
-        if ".data.s" not in f
-    ):
-        file_text = file.read_text()
-        # Todo: Clean up the condition checks
-        if (
-            " 1D09043C " in file_text
-            and " 38F78424 " in file_text
-            and " E127240E " in file_text
-            and " C708023C " in file_text
-            and " 30BC43AC " in file_text
-        ):
-            if match := RE_PATTERNS.psp_ovl_header_entity_table_pattern.search(file_text):
-                if ovl_load_address := first_address_pattern.search(file_text):
-                    ovl_load_symbol = Symbol(f"{ovl_name.upper()}_Load", int(ovl_load_address.group(1), 16))
-                ovl_load_name = file.stem
-                ovl_header_name = match.group("header")
-                entity_updates_name = match.group("entity")
-
-    # build symexport lines, but only write if needed
-    template = Template(
-        (Path(__file__).parent / "templates" / "symexport.txt.mako").read_text()
-    )
-    symexport_text = template.render(
-        ovl_name=ovl_name,
-        path_prefix = f"{path_prefix}_" if path_prefix else "",
-        ovl_load_name=ovl_load_name,
-    )
-
-    return ovl_load_symbol, ovl_header_name, {"name": entity_updates_name}, symexport_text
-
 
 def parse_ovl_header(data_file_text, name, platform, header_symbol=None):
     ovl_header = [
@@ -879,30 +759,6 @@ def parse_ovl_header(data_file_text, name, platform, header_symbol=None):
     else:
         return {}, None
 
-def create_header_c(header_items, ovl_name, ovl_type, version, header_path):
-    header_syms = [f"{symbol.name.replace(f'{ovl_name.upper()}_', 'OVL_EXPORT(')})" if f"{ovl_name.upper()}_" in symbol.name else "NULL" if not symbol.address else symbol.name for symbol in header_items]
-    common_syms = ["NULL", "Update", "HitDetection", "UpdateRoomPosition", "InitRoomEntities", "OVL_EXPORT(rooms)", "OVL_EXPORT(spriteBanks)", "OVL_EXPORT(cluts)", "OVL_EXPORT(pStObjLayoutHorizontal)", "g_pStObjLayoutHorizontal", "OVL_EXPORT(rooms_layers)", "OVL_EXPORT(gfxBanks)", "UpdateStageEntities"]
-    template = Template(
-        (Path(__file__).parent / "templates" / "header.c.mako").read_text()
-    )
-    new_header = template.render(
-        ovl_include_path=f"{ovl_name}.h",
-        ovl_type=ovl_type,
-        header_syms=header_syms,
-        common_syms=common_syms,
-    )
-    if header_path.is_file():
-        existing_header = header_path.read_text()
-        if new_header != existing_header:
-            new_lines = new_header.rstrip("\n").splitlines()
-            license = new_lines[0]
-            include = new_lines[1]
-            existing_lines = existing_header.rstrip("\n").splitlines()
-            existing_lines = existing_lines[2:]
-            ifdef = f"#ifdef VERSION_{'PSP' if version=='pspeu' else version.upper()}"
-            new_header = f"{license}\n{include}\n{ifdef}\n{"\n".join(new_lines[2:])}\n#else\n{'\n'.join(existing_lines)}\n#endif\n"
-
-    header_path.write_text(new_header)
 
 def sort_subsegments(subsegments):
     # the offset is used as a key to intentionally overwrite duplicate offsets, leaving only the longest segment
@@ -1076,29 +932,6 @@ def cross_reference_e_init_c(check_entity_updates, check_e_inits, ref_e_init_pat
         return symbols, len(ref_e_inits) == len(check_e_inits) + not_matched
     return [], False
 
-def create_e_init_c(entity_updates, e_inits, ovl_name, e_init_c_path):
-    if entity_updates:
-        entity_funcs = [
-            (
-                f"{symbol.name.replace(f'{ovl_name.upper()}_','OVL_EXPORT(')})"
-                if f"{ovl_name.upper()}_" in symbol.name
-                else symbol.name
-            )
-            for symbol in entity_updates
-        ]
-
-        template = Template(
-            (Path(__file__).parent / "templates" / "e_init.c.mako").read_text()
-        )
-        output = template.render(
-            ovl_name=ovl_name,
-            entity_funcs=entity_funcs,
-            e_inits=e_inits,
-        )
-        e_init_c_path.write_text(output)
-        return True
-    else:
-        return False
 
 def parse_e_inits(data_file_text, first_e_init, ovl_name, platform):
     e_init_pattern = re.compile(r"""
@@ -1231,7 +1064,7 @@ def parse_e_inits(data_file_text, first_e_init, ovl_name, platform):
     next_offset = re.match(r"glabel\s+\w+\n\s+/\*\s+(?P<offset>[0-9A-Fa-f]+)\s+", text)
     return e_inits, int(next_offset.group("offset"), 16) if next_offset else None, [x for x in symbols if not x.name.startswith("D_")]
 
-def add_initial_symbols(ovl_config, ovl_header_name, parsed_symbols = [], entity_updates = {}, spinner=SimpleNamespace(message="")):
+def add_initial_symbols(ovl_config, e_init_c_path, ovl_header_symbol, parsed_symbols = [], entity_updates = {}, spinner=SimpleNamespace(message="")):
     subsegments = ovl_config.subsegments.copy()
 
 ### group change ###
@@ -1247,16 +1080,9 @@ def add_initial_symbols(ovl_config, ovl_header_name, parsed_symbols = [], entity
                 first_data_text,
                 ovl_config.name,
                 ovl_config.platform,
-                ovl_header_name,
+                ovl_header_symbol,
             )
         )
-        if ovl_header.get("items"):
-            spinner.message = f"creating {ovl_config.name}/header.c"
-            create_header_c(ovl_header.get("items"), ovl_config.name, ovl_config.ovl_type, ovl_config.version, ovl_config.src_path_full.parent / ovl_config.name / "header.c")
-            spinner.message = f"adding header subsegment"
-            header_offset = ovl_header["address"] - ovl_config.vram + ovl_config.start
-            header_subseg = [header_offset, ".data", f"{ovl_config.name}/header" if ovl_config.platform == "psp" else "header", ovl_header.get("size_bytes", 0)]
-            subsegments.append(header_subseg)
         # TODO: Add data segments for follow-on header symbols
         if ovl_config.platform == "psx":
 ### group change ###
@@ -1266,7 +1092,6 @@ def add_initial_symbols(ovl_config, ovl_header_name, parsed_symbols = [], entity
         first_data_text = None
         ovl_header, pStObjLayoutHorizontal_address = {}, None
         entity_updates = {}
-
 
 ### group change ###
     spinner.message="gathering initial symbols"
@@ -1278,12 +1103,10 @@ def add_initial_symbols(ovl_config, ovl_header_name, parsed_symbols = [], entity
         spinner.message = "parsing EInits"
         e_inits, next_offset, symbols = parse_e_inits(first_data_text, entity_updates.get("first_e_init"), ovl_config.name, ovl_config.platform)
         parsed_symbols.extend(symbols)
-        e_init_c_path = ovl_config.src_path_full.with_name(ovl_config.name) / "e_init.c"
 
 ### group change ###
         if ovl_config.version == "us":
-            spinner.message = "creating e_init.c"
-            e_init_success = create_e_init_c(entity_updates.get("items"), e_inits, ovl_config.name, e_init_c_path)
+            e_init_success = True
         else:
             spinner.message = "cross-referencing e_init.c"
             e_init_symbols, e_init_success = cross_reference_e_init_c(entity_updates.get("items"), e_inits, e_init_c_path, ovl_config.name, ovl_config.ld_script_path.with_suffix(".map"))
@@ -1293,9 +1116,6 @@ def add_initial_symbols(ovl_config, ovl_header_name, parsed_symbols = [], entity
         if entity_updates_offset > 0:
             e_init_subseg = [entity_updates_offset, f"{'.' if e_init_success else ''}data", f"{ovl_config.name}/e_init" if ovl_config.platform == "psp" else "e_init", next_offset - entity_updates_offset]
             subsegments.append(e_init_subseg)
-        ovl_include_path = ovl_config.src_path_full.parent / ovl_config.name / f"{ovl_config.name}.h"
-        create_ovl_include(entity_updates.get("items"), ovl_config.name, ovl_config.ovl_type, ovl_include_path)
-
 
     if ovl_header.get("symbols") or entity_updates.get("symbols"):
         parsed_symbols.extend((
@@ -1312,22 +1132,7 @@ def add_initial_symbols(ovl_config, ovl_header_name, parsed_symbols = [], entity
     if ovl_header.get("address"):
         parsed_symbols.append(Symbol(f"{ovl_config.name.upper()}_Overlay", ovl_header.get("address")))
 
-    if parsed_symbols:
-### group change ###
-        spinner.message = f"adding {len(parsed_symbols)} parsed symbols and splitting again"
-        add_symbols(
-            ovl_config.ovl_symbol_addrs_path,
-            parsed_symbols,
-            ovl_config.name,
-            ovl_config.vram,
-            ovl_config.symbol_name_format.replace("$VRAM", ""),
-            ovl_config.src_path_full,
-            ovl_config.symexport_path
-        )
-        shell(f"git clean -fdx {ovl_config.asm_path}")
-        splat_split(ovl_config.config_path)
-
-    return subsegments
+    return subsegments, parsed_symbols, ovl_header, entity_updates, e_inits
 
 def rename_similar_functions(ovl_config, parsed_check_files, parsed_ref_files, spinner=SimpleNamespace(message="")):
     matches = find_symbols(
