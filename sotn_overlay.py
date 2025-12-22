@@ -611,7 +611,7 @@ def get_rodata_address(data: bytes) -> Optional[int]:
     ) + lw_v0.imm
 
 
-def find_segments(ovl_config, file_header, known_starts):
+def find_segments(ovl_config, file_header, known_segments):
     logger = get_logger()
     segments = []
     rodata_pattern = re.compile(
@@ -650,16 +650,16 @@ def find_segments(ovl_config, file_header, known_starts):
         )
 
         if (
-            current_function_parts[0] == "GetLang" and matches[i + 1][1] in known_starts
+            current_function_parts[0] == "GetLang" and matches[i + 1][1] in known_segments
         ) or (
             current_function_parts[0] != "GetLang"
-            and current_function_stem in known_starts
+            and current_function_stem in known_segments
             and not in_known_segment
             and (
                 not segment_meta
                 or not segment_meta.name
                 or not segment_meta.name.endswith(
-                    known_starts[current_function_stem].name
+                    known_segments[current_function_stem].name
                 )
             )
         ):
@@ -679,17 +679,17 @@ def find_segments(ovl_config, file_header, known_starts):
                 segment_meta = None
 
             if current_function_parts[0] == "GetLang":
-                segment_meta = known_starts[matches[i + 1][1]]
+                segment_meta = known_segments[matches[i + 1][1]]
                 segment_meta.start = current_function
-            elif current_function_stem not in known_starts:
+            elif current_function_stem not in known_segments:
                 for num in range(len(current_function_parts), 0, -1):
-                    if "_".join(current_function_parts[:num]) in known_starts:
-                        segment_meta = known_starts[
+                    if "_".join(current_function_parts[:num]) in known_segments:
+                        segment_meta = known_segments[
                             "_".join(current_function_parts[:num])
                         ]
                         segment_meta.start = current_function
             else:
-                segment_meta = known_starts[current_function_stem]
+                segment_meta = known_segments[current_function_stem]
                 segment_meta.start = current_function
             segment_meta.offset = None
             if ovl_config.version == "pspeu":
