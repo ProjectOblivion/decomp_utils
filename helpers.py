@@ -7,19 +7,17 @@ import datetime
 import json
 import threading
 import os
-import argparse
 import re
 import contextlib
 import splat.scripts.split as split
 import sotn_utils.yaml_ext as yaml
-from subprocess import run, CalledProcessError
+from subprocess import run
 from logging import LogRecord
 from pathlib import Path
 from enum import StrEnum
 from typing import Any, Union, Generator
 from io import StringIO
 from collections import namedtuple
-
 
 __all__ = [
     "TTY",
@@ -32,14 +30,17 @@ __all__ = [
     "create_table",
     "bar",
     "splat_split",
+    "align",
     "add_symbols",
     "get_symbol_address",
     "Symbol",
     "get_suggested_segments",
     "get_run_time",
+    "sort_subsegments",
 ]
 
 Symbol = namedtuple("Symbol", ["name", "address"])
+
 
 class TTY(StrEnum):
     RESET = "\x1b[0m"
@@ -59,6 +60,7 @@ class TTY(StrEnum):
     OK = "🆗"
     SUCCESS = f"\x1b[32m\x1b[1m✔\x1b[0m"
     FAILURE = f"\x1b[31m\x1b[1m✖"
+
 
 class SotnDecompConsoleFormatter(logging.Formatter):
     """Formats log entries with color-coded severities"""
@@ -164,9 +166,11 @@ class Spinner:
         if exception is not None:
             return False
 
+
 def get_logger():
     """Simple wrapper function to make it easier to get the logger"""
     return logging.getLogger(__name__.strip("_"))
+
 
 def init_logger(
     file_level=logging.INFO,
@@ -177,7 +181,7 @@ def init_logger(
     """Simple wrapper function to make it easier to set up and use custom formatting"""
     if isinstance(filename, (str, Path)):
         filename = Path(filename)
-    
+
     if not filename.exists():
         filename.parent.mkdir(parents=True, exist_ok=True)
 
@@ -206,6 +210,7 @@ def init_logger(
 
     return logger
 
+
 def get_repo_root(current_path: Path = Path(__file__).resolve()) -> Path:
     """Attempts to find the root of the repo by stepping backward from directory containing __file__"""
     while current_path != current_path.root:
@@ -215,7 +220,7 @@ def get_repo_root(current_path: Path = Path(__file__).resolve()) -> Path:
     raise FileNotFoundError("Repository root with .git folder not found.")
 
 
-def shell(cmd, env_vars = {}, version=None, text=True):
+def shell(cmd, env_vars={}, version=None, text=True):
     """Executes a string as a shell command and returns its output"""
     # Todo: Add both list and string handling
     env = os.environ.copy()
@@ -380,6 +385,43 @@ def splat_split(config_path, disassemble_all=True):
         )
     return output.getvalue()
 
+
+def align(n: Union[int, yaml.Hex], alignment: Union[int, yaml.Hex]) -> int:
+    """Aligns n to the nearest multiple of alignment."""
+    if alignment & (alignment - 1) == 0:  # Check if alignment is a power of 2
+        return (n + alignment - 1) & ~(alignment - 1)
+    else:
+        return ((n + alignment - 1) // alignment) * alignment
+
+
+def sort_subsegments(subsegments):
+    # the offset is used as a key to intentionally overwrite duplicate offsets, leaving only the longest segment
+    deduped_subsegments = {
+        subsegment[0]: subsegment
+        for subsegment in sorted(subsegments, key=lambda x: (x[0], len(x)))
+    }
+    # sort again to ensure that they're still sorted by offset after dedupe
+    sorted_subsegments = sorted(
+        [subsegment for subsegment in deduped_subsegments.values()], key=lambda x: x[0]
+    )
+
+    new_subsegments = []
+    next_offset = -1
+    for subsegment in sorted_subsegments:
+        if next_offset == -1 or subsegment[0] == next_offset:
+            new_subsegments.append(subsegment)
+            next_offset = -1
+        elif subsegment[0] > next_offset:
+            new_subsegments.append([next_offset, "data"])
+            new_subsegments.append(subsegment)
+            next_offset = -1
+
+        if len(subsegment) == 4:
+            next_offset = subsegment[0] + subsegment.pop()
+
+    return [yaml.FlowSegment(x) for x in new_subsegments]
+
+
 def get_suggested_segments(config_path):
     output = splat_split(config_path)
     splat_suggestions = re.finditer(
@@ -389,14 +431,13 @@ def get_suggested_segments(config_path):
         (?P<suggestions>(?:\s+-\s+\[0x[0-9A-Fa-f]+,\s.+?\]\n)+)\n
         """,
         output,
-        re.VERBOSE
-        )
+        re.VERBOSE,
+    )
 
     suggested_segments = []
     for match in splat_suggestions:
         suggestions = re.findall(
-            r"\s+-\s+\[(0x[0-9A-Fa-f]+),\s(.+?)\]",
-            match.group("suggestions")
+            r"\s+-\s+\[(0x[0-9A-Fa-f]+),\s(.+?)\]", match.group("suggestions")
         )
         suggested_segments.extend(
             [offset, segment_type, match.group("segment")]
@@ -405,9 +446,13 @@ def get_suggested_segments(config_path):
 
     return suggested_segments
 
+
 def get_symbol_address(map_path, symbol_name):
     if map_path and map_path.is_file():
-        if match := re.search(r"\n\s+0x(?P<address>[A-Fa-f0-9]{8})\s+" + rf"{symbol_name}\n", map_path.read_text()):
+        if match := re.search(
+            r"\n\s+0x(?P<address>[A-Fa-f0-9]{8})\s+" + rf"{symbol_name}\n",
+            map_path.read_text(),
+        ):
             return int(match.group(1), 16)
         else:
             return None
@@ -415,8 +460,15 @@ def get_symbol_address(map_path, symbol_name):
         get_logger().error(f"{map_path} not found")
         return None
 
-existing_symbols_pattern=re.compile(r"(?P<name>\w+)\s=\s0x(?P<address>[A-Fa-f0-9]{8})")
-def add_symbols(symbols_path, new_symbols, ovl_name, vram, sym_prefix, src_path_full, symexport_path):
+
+existing_symbols_pattern = re.compile(
+    r"(?P<name>\w+)\s=\s0x(?P<address>[A-Fa-f0-9]{8})"
+)
+
+
+def add_symbols(
+    symbols_path, new_symbols, ovl_name, vram, sym_prefix, src_path_full, symexport_path
+):
     symbols_text = Path(symbols_path).read_text()
     existing_symbols = {
         symbol.group("address"): symbol.group("name")
@@ -444,7 +496,9 @@ def add_symbols(symbols_path, new_symbols, ovl_name, vram, sym_prefix, src_path_
         ]
         symbols_path.write_text(f"{"\n".join(new_lines)}\n")
 
-        pattern = re.compile(rf"(?:D_|func_){sym_prefix}({"|".join(new_symbols.keys())})")
+        pattern = re.compile(
+            rf"(?:D_|func_){sym_prefix}({"|".join(new_symbols.keys())})"
+        )
         for src_file in (
             dirpath / f
             for dirpath, _, filenames in src_path_full.walk()
@@ -464,6 +518,7 @@ def add_symbols(symbols_path, new_symbols, ovl_name, vram, sym_prefix, src_path_
             )
             symexport_path.write_text(adjusted_text)
 
+
 def get_run_time(start_time):
     run_time = time.perf_counter() - start_time
     if run_time < 60:
@@ -474,5 +529,5 @@ def get_run_time(start_time):
         minutes_text = f"{minutes}m"
         seconds_text = f"{int(seconds)}s" if seconds else ""
         time_text = f"{minutes_text}{seconds_text}"
-    
+
     return time_text
